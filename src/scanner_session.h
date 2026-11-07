@@ -16,11 +16,13 @@
 #include "clock.h"
 #include "config.h"
 #include "game_process.h"
+#include "keys.h"
 #include "log.h"
 #include "mem/reader.h"
 #include "offsets.h"
 #include "scanner_ctl.h"
 #include "state.h"   // Phase values carried in ctl_.phase
+#include "vitals.h"   // evaluate() + VitalSendState (stage 4)
 
 namespace poe2 {
 
@@ -37,6 +39,8 @@ public:
         Logger& log;
         const Offsets& offs;
         ScannerCfg cfg;
+        Config full;         // stage 4: the vitals section for evaluate()
+        IKeySender& sender;  // stage 4: presses go through the injected sender
     };
 
     ScannerSession(Deps deps, ScannerCtl& ctl);
@@ -70,6 +74,9 @@ private:
     int64_t last_loss_ms_ = -1;       // chain-loss info throttle (SPEC §7, 5 s)
     int64_t last_mismatch_ms_ = -1;   // Offsets mismatch warn throttle
     int64_t last_open_ms_ = -1;       // OpenProcess warn throttle
+    // Stage 4: the per-Vital cooldown timers live in the scanner thread (SPEC §4.2),
+    // never in the UI. evaluate() updates them on every sent press.
+    VitalSendState vitals_state_;
 };
 
 }  // namespace poe2

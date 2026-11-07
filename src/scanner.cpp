@@ -33,6 +33,11 @@ void Scanner::loop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(ms));
         }
     }
+    // MINOR_ISSUES S3-7: shutdown while attached must end with the detach info line.
+    // stop() clears enabled before the stop flag, so this final step takes the
+    // detach path (SPEC §4.6: zero reads when the module is off) and logs
+    // "detached from PID n (scanner disabled)" before the thread is joined.
+    session_.step();
 }
 
 void Scanner::set_enabled(bool on) {
@@ -41,6 +46,9 @@ void Scanner::set_enabled(bool on) {
 }
 
 void Scanner::stop() {
+    // S3-7 ordering: enabled is cleared BEFORE the stop flag, so the final loop step
+    // sees the module off and writes the detach line when a reader was open.
+    ctl_.enabled.store(false);
     ctl_.stop.store(true);
     if (wake_) SetEvent(wake_);   // wake the thread out of the poll timeout
     if (thread_.joinable()) thread_.join();

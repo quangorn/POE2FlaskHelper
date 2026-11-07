@@ -177,12 +177,6 @@
 
 ## Stage 3 — review (signature, chain, tick, scanner_session, win_reader)
 
-### S3-1: src/chain.cpp:345-351 — vital span `hi` не учитывает ReservedFlat
-- файл: src/chain.cpp:345-351
-- суть: `hi = max(b + max(TotalOff, CurrentOff, ReservedOff) + 4)`; при offsets.json с `ReservedFlat > CurrentOff/ReservedOff/TotalOff` — индекс за границей span-вектора (latent: rev34 безопасна, 24 < 56). Подтверждено scratch-запуском с ReservedFlat=200: tick ok с OOB. Fix: включить ReservedFlat в max.
-- статус: open
-- источник: reviewer stage 3 — чинить первым из списка
-
 ### S3-2: src/scanner.cpp:15-18 — event handle `wake_` не закрывается
 - файл: src/scanner.cpp:15-18
 - суть: нет CloseHandle(wake_) после join; поглощается выходом процесса. Fix: CloseHandle в ~Scanner() после stop().
@@ -213,8 +207,14 @@
 - статус: open
 - источник: reviewer stage 3
 
-### S3-7: src/scanner_session.cpp:167-176 + src/scanner.cpp:23-36 — нет detach-лога при shutdown, когда attached
-- файл: src/scanner_session.cpp:167-176; src/scanner.cpp:23-36
-- суть: stop-флаг минует step(), поток выходит без `detached`; join+flush верифицированы. Fix: в Scanner::stop() сбрасывать enabled до stop+wake, чтобы финальный step залогировал detach.
+### S4-1: src/vital_math.cpp:11 — reserved_amount клампит отрицательный flat к 0 vs py truncation
+- файл: src/vital_math.cpp:11
+- суть: py `int(x + 0.999999)`truncate'т отрицательные к нулю, C клампит к 0; недостижимо (tick читает u32), «defensive»; добавить parity-заметку.
 - статус: open
-- источник: reviewer stage 3
+- источник: reviewer stage 4
+
+### S4-2: src/vitals.h:36 — комментарий «extended = E0 prefix for NumPad», SPEC §4.8 включает стрелки
+- файл: src/vitals.h:36
+- суть: формулировка неполная (keys.h:53 корректна); код верён; косметика.
+- статус: open
+- источник: reviewer stage 4

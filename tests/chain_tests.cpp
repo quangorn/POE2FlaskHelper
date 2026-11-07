@@ -261,3 +261,43 @@ TEST(tick_area_instance_zero) {
     CHECK(!t.ok);
     CHECK_EQ(t.fail.step, ChainStep::AreaInstance);
 }
+
+TEST(tick_reserved_flat_above_current_off_no_oob) {
+    // MINOR_ISSUES S3-1: an offsets.json where ReservedFlat > CurrentOff. The span
+    // must cover flat/percent/total/current of every Vital', so all field indices
+    // b+Off-lo are inside [0, span): the values read back are the ones written, and
+    // nothing reads past the span end (FakeMemory would report a short read).
+    poe2::Offsets o = rev34();
+    o.ReservedFlat = 60;    // > CurrentOff (56), TotalOff (52), ReservedOff (28); stays
+    // below the Vital' struct stride (~88 bytes) so the synthetic writes of one Vital'
+    // never land on a neighbour's fields.
+    FakeMemory m;
+    build_synthetic(m, o);  // the layout builder writes fields at base+ReservedFlat
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, o, c).ok);
+    m.reset_reads();
+    const auto t = poe2::tick(m, o, c);
+    REQUIRE(t.ok);           // a full-length block read, no short read at the span end
+    CHECK_EQ(m.last_read_size(), 348);   // span lo=life+452 (min of all four offsets),
+                                         // hi=life+800 (ward base + 60 + 4): 348 bytes
+    for (int i = 0; i < poe2::kVitalCount; ++i) {
+        const poe2::VitalVals& v = t.vals[i];
+        uint32_t t_exp = 0, c_exp = 0, f_exp = 0, p_exp = 0;
+        switch (i) {
+            case poe2::kHealth: t_exp = Synth::hp_total; c_exp = Synth::hp_current;
+                                f_exp = Synth::hp_flat; p_exp = Synth::hp_pct; break;
+            case poe2::kMana: t_exp = Synth::mp_total; c_exp = Synth::mp_current;
+                              f_exp = Synth::mp_flat; p_exp = Synth::mp_pct; break;
+            case poe2::kEnergyShield: t_exp = Synth::es_total; c_exp = Synth::es_current;
+                                      f_exp = Synth::es_flat; p_exp = Synth::es_pct; break;
+            case poe2::kWard: t_exp = Synth::ward_total; c_exp = Synth::ward_current;
+                              f_exp = Synth::ward_flat; p_exp = Synth::ward_pct; break;
+            default: t_exp = Synth::rage_total; c_exp = Synth::rage_current;
+                     f_exp = Synth::rage_flat; p_exp = Synth::rage_pct; break;
+        }
+        CHECK_EQ(v.total, t_exp);
+        CHECK_EQ(v.current, c_exp);
+        CHECK_EQ(v.flat, f_exp);
+        CHECK_EQ(v.pct, p_exp);
+    }
+}

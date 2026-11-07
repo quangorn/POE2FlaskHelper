@@ -45,4 +45,20 @@ HotkeyResult parse_hotkey(const std::string& s);
 // Vital key: a plain key without modifiers - letters, digits, F1-F24, NumPad (SPEC §5).
 KeyResult parse_key(const std::string& s);
 
+// Key press sender interface (plan.md §1). Win32-free; the scanner thread is the only
+// caller (SPEC §4.8). Tests inject RecordingKeySender.
+struct IKeySender {
+    virtual ~IKeySender() = default;
+    // One full key press: keydown + keyup, as if the player pressed the key.
+    // extended = the E0 prefix for arrows/NumPad (SPEC §4.8).
+    virtual void press(uint16_t vk, bool extended) = 0;
+};
+
+// Real sender (SPEC §4.8): SendInput with VK + MapVirtualKey scan code, keydown+keyup.
+// Declared in this Win32-free header (the Win32ProcessProvider pattern); the
+// implementation compiles into the exe (src/win_keys.cpp), never into poe2_core.
+struct Win32KeySender : IKeySender {
+    void press(uint16_t vk, bool extended) override;
+};
+
 }  // namespace poe2

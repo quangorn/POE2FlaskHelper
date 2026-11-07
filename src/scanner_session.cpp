@@ -48,6 +48,12 @@ std::string phase_name(Phase p) {
     }
 }
 
+// SPEC §7 debug press line, exact format: "Health 23% < 50%, key=1".
+std::string press_line(const VitalAction& a) {
+    return std::string(kVitalNames[a.vital]) + " " + std::to_string(a.percent) +
+           "% < " + std::to_string(a.threshold) + "%, key=" + a.key;
+}
+
 }  // namespace
 
 bool log_throttle(int64_t now_ms, int64_t window_ms, int64_t& last_ms) {
@@ -143,6 +149,19 @@ void ScannerSession::tick_step() {
     const TickResult t = tick(*reader_, deps_.offs, cache_);
     if (t.ok) {
         deps_.log.log(LogLevel::Debug, values_line(t));
+        // Stage 4 (SPEC §4.7/§4.8): the presses go out on this tick, from the
+        // scanner thread only. requireGameForeground is folded into the foreground
+        // bool by the session: is_foreground is asked on the scanner thread via
+        // IProcessProvider. Invalid values never reach evaluate (tick !ok below).
+        const bool fg = !deps_.cfg.requireGameForeground ||
+                        deps_.proc.is_foreground(pid_);
+        const std::vector<VitalAction> actions =
+            evaluate(t.vals, deps_.full, fg, deps_.clock.now_ms(), vitals_state_);
+        for (const VitalAction& a : actions) {
+            deps_.sender.press(a.vk, a.extended);
+            // SPEC §7: each press is a debug line; nothing of this appears at info.
+            deps_.log.log(LogLevel::Debug, press_line(a));
+        }
         return;
     }
     // SPEC §4.6 item 4: chain break => back to the process poll. The log is

@@ -340,14 +340,19 @@ TickResult tick(IMemoryReader& m, const Offsets& o, ChainCache& cache) {
         return r;
     }
 
-    // Vital' fields: one block read covering ReservedFlat..CurrentOff of all 5
-    // Vital' structures inside Life (~10 reads on a tick in total).
-    int64_t lo = vital_base(o, 0) + o.ReservedFlat;
+    // Vital' fields: one block read covering all four fields of all 5 Vital'
+    // structures inside Life (~10 reads on a tick in total). The span must cover
+    // min/max over TotalOff, CurrentOff, ReservedOff AND ReservedFlat (MINOR_ISSUES
+    // S3-1: an offsets.json with ReservedFlat > CurrentOff used to read past the
+    // span end); every field index b+Off-lo is then inside [0, span).
+    const int64_t fmin = std::min({o.TotalOff, o.CurrentOff, o.ReservedOff, o.ReservedFlat});
+    const int64_t fmax = std::max({o.TotalOff, o.CurrentOff, o.ReservedOff, o.ReservedFlat});
+    int64_t lo = vital_base(o, 0) + fmin;
     int64_t hi = lo + 4;
     for (int i = 0; i < kVitalCount; ++i) {
         const int64_t b = vital_base(o, i);
-        lo = std::min(lo, b + o.ReservedFlat);
-        hi = std::max(hi, b + std::max({o.TotalOff, o.CurrentOff, o.ReservedOff}) + 4);
+        lo = std::min(lo, b + fmin);
+        hi = std::max(hi, b + fmax + 4);
     }
     const int64_t span = hi - lo;
     if (span <= 0 || static_cast<uint64_t>(span) > kMaxVitalSpan) {

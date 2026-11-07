@@ -36,14 +36,15 @@ add_library(poe2_core STATIC
     src/signature.cpp
     src/chain.cpp
     src/vital_math.cpp
+    src/vitals.cpp
     src/scanner_session.cpp
     src/app.cpp)
 target_include_directories(poe2_core PUBLIC ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(poe2_core PUBLIC UNICODE _UNICODE)
 
 # App layer: tray/hotkey/sound are Win32 (SPEC §4.2: UI/GDI on the main thread), the
-# scanner thread wrapper, the real process provider and the ReadProcessMemory reader
-# are the exe's OS edge - poe2_core units never compile them.
+# scanner thread wrapper, the real process provider, the ReadProcessMemory reader and
+# the SendInput key sender are the exe's OS edge - poe2_core units never compile them.
 add_executable(POE2FlaskHelper WIN32
     src/main.cpp
     src/tray.cpp
@@ -51,6 +52,7 @@ add_executable(POE2FlaskHelper WIN32
     src/sound.cpp
     src/scanner.cpp
     src/game_process.cpp
+    src/win_keys.cpp
     src/mem/win_reader.cpp
     res/app.rc)
 target_link_libraries(POE2FlaskHelper PRIVATE
@@ -66,6 +68,7 @@ add_executable(poe2_tests
     tests/json_tests.cpp
     tests/config_tests.cpp
     tests/hotkey_tests.cpp
+    tests/keymap_tests.cpp
     tests/state_tests.cpp
     tests/offsets_tests.cpp
     tests/log_tests.cpp
@@ -74,12 +77,17 @@ add_executable(poe2_tests
     tests/signature_tests.cpp
     tests/chain_tests.cpp
     tests/vital_math_tests.cpp
+    tests/vitals_tests.cpp
     tests/session_tests.cpp
+    tests/vital_session_tests.cpp
     tests/synthetic_layout.cpp
     tests/fakes/FakeClock.cpp
     tests/fakes/FakeMemory.cpp
-    tests/fakes/FakeProcess.cpp)
-target_link_libraries(poe2_tests PRIVATE poe2_core)
+    tests/fakes/FakeProcess.cpp
+    tests/fakes/RecordingKeySender.cpp)
+# user32: keymap_tests runs MapVirtualKey (the real scan-code table the Win32Key
+# sender sends, SPEC §4.8) - test-only, the shipped exe deps stay the SPEC §2 set.
+target_link_libraries(poe2_tests PRIVATE poe2_core user32)
 target_include_directories(poe2_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 # Real rev34 offsets file for the compatibility test (SPEC §6, poe_scan.py --offs-file).
 target_compile_definitions(poe2_tests PRIVATE

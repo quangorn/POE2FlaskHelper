@@ -201,13 +201,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
 
     // Scanner wiring: the pure session state machine (poe2_core) with the real Win32
     // providers injected (SPEC §4.2): the thread owns the handle and all reads, main
-    // passes only atomics. Declared after logger/offsets so shutdown destruction
-    // order (reverse) joins the thread before the log file closes.
+    // passes only atomics. Stage 4: presses go through the Win32 SendInput sender,
+    // called ONLY on the scanner thread (SPEC §4.8); the UI never sends keys.
+    // Declared after logger/offsets so shutdown destruction order (reverse) joins
+    // the thread before the log file closes.
     poe2::Win32ProcessProvider proc;
     poe2::WinMemoryReaderFactory factory;
+    poe2::Win32KeySender key_sender;
     poe2::ScannerCtl ctl;
     poe2::ScannerSession::Deps deps{proc, factory, clock, logger, ores.offsets,
-                                    cres.cfg.scanner};
+                                    cres.cfg.scanner, cres.cfg, key_sender};
     poe2::Scanner scanner(deps, ctl);
 
     int exit_code = 0;

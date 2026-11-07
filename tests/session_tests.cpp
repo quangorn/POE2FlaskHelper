@@ -1,7 +1,8 @@
 // ScannerSession state machine tests (plan.md stage 3): waiting -> attach -> reading
 // -> break -> waiting, game restart, scanner off with ZERO FakeMemory reads, the 5 s
 // log rate limit. Everything is driven through step() with FakeProcess/FakeMemory/
-// FakeClock; no sleeps, no real time, no game.
+// FakeClock; no sleeps, no real time, no game. The fixture lives in
+// tests/session_fixture.h (shared with the stage 4 session tests).
 #include "test.h"
 
 #include <climits>
@@ -10,6 +11,7 @@
 #include "config.h"
 #include "scanner_ctl.h"
 #include "scanner_session.h"
+#include "session_fixture.h"
 #include "state.h"
 #include "synthetic_layout.h"
 #include "test_tmp.h"
@@ -25,69 +27,17 @@ using poe2::Phase;
 using poe2::ScannerCfg;
 using poe2::ScannerCtl;
 using poe2::ScannerSession;
-using Deps = poe2::ScannerSession::Deps;   // MSVC: a nested type alias, not a using-decl
 using poe2::testing::FakeClock;
 using poe2::testing::FakeMemFactory;
 using poe2::testing::FakeMemory;
 using poe2::testing::FakeProcess;
+using poe2::testing::Fix;
 using poe2::testing::Synth;
 using poe2::testing::rev34;
 
 namespace {
 
 Phase phase_of(const ScannerCtl& ctl) { return static_cast<Phase>(ctl.phase.load()); }
-
-LogOptions debug_opts() {
-    LogOptions o;
-    o.min_level = LogLevel::Debug;
-    return o;
-}
-
-// Fixture: synthetic layout + fake OS, wired with the exact Deps struct main.cpp uses.
-// The logger writes to a fresh temp dir; flush() puts the lines on disk before the
-// log-content checks read them.
-struct Fix {
-    std::shared_ptr<FakeMemory> mem;
-    FakeProcess proc;
-    FakeClock clock;
-    std::string log_path;
-    Logger logger;
-    FakeMemFactory factory;
-    ScannerCtl ctl;
-    ScannerCfg cfg;
-    Deps deps;
-    ScannerSession session;
-
-    Fix(const std::string& name, ScannerCfg cfg_init)
-        : mem(std::make_shared<FakeMemory>()),
-          log_path(poe2::testing::tmp_dir(name).string() + "/app.log"),
-          logger(log_path, clock, debug_opts()),
-          factory{},
-          ctl{},
-          cfg(cfg_init),
-          deps{proc, factory, clock, logger, rev34(), cfg},
-          session(deps, ctl) {
-        build_synthetic(*mem, rev34());
-        factory.mem = mem;
-        clock.set(100000);
-    }
-
-    std::string log_text() {
-        logger.flush();
-        return poe2::testing::read_file(log_path);
-    }
-
-    int count(const std::string& needle) {
-        const std::string t = log_text();
-        int n = 0;
-        size_t pos = 0;
-        while ((pos = t.find(needle, pos)) != std::string::npos) {
-            ++n;
-            pos += needle.size();
-        }
-        return n;
-    }
-};
 
 }  // namespace
 
@@ -133,6 +83,9 @@ TEST(scanner_attach_and_reading) {
     f.session.step();
     CHECK(f.log_text().find("tick: Health 4000/5000") != std::string::npos);
     CHECK_EQ(f.count("Health"), 1);        // one values line, no info-level duplication
+    // Default config on the synthetic layout: nothing is below threshold, so the
+    // RecordingKeySender stays empty (Health 4000/3888 unreserved >= 50%, key never sent).
+    CHECK_EQ(f.sender.count(), 0);
 }
 
 TEST(scanner_open_process_failure_is_a_warning_and_waits) {
@@ -233,6 +186,26 @@ TEST(scanner_disable_mid_reading_stops_all_reads) {
     for (int i = 0; i < 5; ++i) f.session.step();
     CHECK_EQ(f.mem->reads(), before);        // zero further reads
     CHECK_EQ(f.proc.finds, 1);               // the process poll is not running while off
+}
+
+TEST(shutdown_while_attached_logs_detach) {
+    // MINOR_ISSUES S3-7: Scanner::stop() clears enabled BEFORE setting stop + waking,
+    // and the loop runs one final step() after the stop flag. That final step must
+    // take the detach path and log the line. This test drives exactly that order on
+    // the session: enabled=false, stop=true, then the last step.
+    Fix f("shutdown_detach", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(4242);
+    f.session.step();                        // attach
+    REQUIRE(phase_of(f.ctl) == Phase::Attached);
+    const int attached_reads = f.mem->reads();
+
+    f.ctl.enabled.store(false);              // stop() order: enabled first
+    f.ctl.stop.store(true);                  // then the stop flag
+    f.session.step();                        // the loop's final step
+    CHECK(f.log_text().find("detached from PID 4242 (scanner disabled)") != std::string::npos);
+    CHECK(phase_of(f.ctl) == Phase::ScannerOff);
+    CHECK_EQ(f.mem->reads(), attached_reads);   // detach path: zero further reads
 }
 
 TEST(offsets_mismatch_logged_once_per_5s) {
