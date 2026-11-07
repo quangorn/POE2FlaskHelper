@@ -3,10 +3,7 @@
 
 #include "version.h"
 #include "res_paths.rc"
-
-#define IDI_APP_ICON  101
-#define ID_ENABLE_WAV 102
-#define ID_DISABLE_WAV 103
+#include "res_ids.h"   // IDI_APP_ICON / ID_ENABLE_WAV / ID_DISABLE_WAV (shared with C++ and the tests)
 
 IDI_APP_ICON  ICON      ICON_PATH
 ID_ENABLE_WAV WAVE      ENABLE_WAV_PATH

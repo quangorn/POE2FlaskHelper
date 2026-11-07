@@ -10,8 +10,9 @@ file(WRITE "${CMAKE_BINARY_DIR}/version.txt" "${PROJECT_VERSION}")
 configure_file("res/version.h.in" "${CMAKE_BINARY_DIR}/version.h" NEWLINE_STYLE CRLF)
 configure_file("res/res_paths.rc.in" "${CMAKE_BINARY_DIR}/res_paths.rc" NEWLINE_STYLE CRLF)
 
-# rc.exe finds generated headers via -I.
-set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I ${CMAKE_BINARY_DIR}")
+# rc.exe finds generated headers via -I. src/ is added for res_ids.h (shared resource
+# ids: app.rc, C++ code and tests use one definition).
+set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I ${CMAKE_BINARY_DIR} -I ${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 add_compile_options(/W4 /utf-8 /permissive- /EHsc /GR-)
 add_compile_options("$<$<CONFIG:Release>:/O2>" "$<$<CONFIG:Release>:/Gy>")
@@ -29,11 +30,20 @@ add_library(poe2_core STATIC
     src/config.cpp
     src/offsets.cpp
     src/keys.cpp
+    src/state.cpp
+    src/scanner.cpp
     src/app.cpp)
 target_include_directories(poe2_core PUBLIC ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(poe2_core PUBLIC UNICODE _UNICODE)
 
-add_executable(POE2FlaskHelper WIN32 src/main.cpp res/app.rc)
+# App layer: tray/hotkey/sound are Win32 (SPEC §4.2: UI/GDI on the main thread), the
+# state/label/sound-id mapping is pure core code (src/state.cpp).
+add_executable(POE2FlaskHelper WIN32
+    src/main.cpp
+    src/tray.cpp
+    src/hotkeys.cpp
+    src/sound.cpp
+    res/app.rc)
 target_link_libraries(POE2FlaskHelper PRIVATE
     poe2_core user32 kernel32 shell32 psapi gdi32 winmm)
 
@@ -47,6 +57,7 @@ add_executable(poe2_tests
     tests/json_tests.cpp
     tests/config_tests.cpp
     tests/hotkey_tests.cpp
+    tests/state_tests.cpp
     tests/offsets_tests.cpp
     tests/log_tests.cpp
     tests/paths_tests.cpp

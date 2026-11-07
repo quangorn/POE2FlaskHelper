@@ -161,6 +161,46 @@
 - источник: reviewer stage 1 (re-review)
 
 ## Assets (задача, не проблема)
-- Пользователь предоставил res/on.wav и res/off.wav (валидные WAV: mono/16bit/44100, 0.82 с / 0.689 с). Задача: заменить заглушки enable.wav/disable.wav их содержимым (имена сохраняем — app.rc не меняем). Заглушки app.ico по-прежнему ждём.
-- статус: task
+- Пользователь предоставил res/on.wav и res/off.wav; заменено в enable.wav/disable.wav (коммит `6e3596f`).
+- Пользователь предоставил иконку: готовые записи 16–256 px с прозрачным фоном легли в app.ico (коммит `7b286a3`), заглушка заменена.
+- Ассеты закрыты: финальных от пользователя больше не ждём.
+- статус: fixed-removed
 - источник: user 2026-11-07
+
+## Stage 2 — review (tray, hotkeys, sound, state)
+
+### S2-2: src/tray.cpp:82-83 — info-лог каждого tray-callback события, включая WM_MOUSEMOVE
+- файл: src/tray.cpp:82-83
+- суть: ~50 [info] строк за 2.5 с ховера; SPEC §7 info-лист не включает tray-события. Логировать hover/no-op на debug, info только для значимых.
+- статус: open
+- источник: reviewer stage 2
+
+### S2-3: src/hotkeys.cpp:8 — нет MOD_NOREPEAT (0x4000)
+- файл: src/hotkeys.cpp:8
+- суть: удержание Ctrl+9 повторяет WM_HOTKEY → спам переключений и WAV. Добавить hk.mods | 0x4000.
+- статус: open
+- источник: reviewer stage 2
+
+### S2-4: src/tray.cpp:52 — RegisterClassW без пары UnregisterClass
+- файл: src/tray.cpp:52, ~Tray
+- суть: имплицитно чистится на выходе; добавить UnregisterClassW(kTrayWindowClass, host_.hInst) в ~Tray для баланса.
+- статус: open
+- источник: reviewer stage 2
+
+### S2-5: src/main.cpp:228-232 — startup-enable играет enable.wav
+- файл: src/main.cpp:228-232
+- суть: SPEC §4.5 перечисляет триггеры hotkey+menu, старта нет; defensable, расхождение. Уточнить в SPEC v1.1 на этапе 5.
+- статус: open
+- источник: reviewer stage 2
+
+### S2-6: src/tray.cpp:160 — возвращаемое значение NIM_SETVERSION не проверено
+- файл: src/tray.cpp:160
+- суть: warn при неудаче.
+- статус: open
+- источник: reviewer stage 2
+
+### S2-7: src/tray.h:6-11 — комментарий про FindWindowW для hidden-окна
+- файл: src/tray.h:6-11
+- суть: FindWindowW пропускает не-WS_VISIBLE окна (вернул 0); документировать EnumWindows+GetClassNameW как путь поиска; поведение само корректно.
+- статус: open
+- источник: reviewer stage 2 (re-review)
