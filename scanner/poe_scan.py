@@ -9,12 +9,14 @@
     python poe_scan.py --selftest      # цепочка на синтетике (офлайн, без процесса)
     python poe_scan.py --offs-file offsets.json --values   # только HP/Mana/ES, без трассировки
     python poe_scan.py --offs HealthOff=0x1DC,TotalOff=0x34,...,LocalPlayers=0x5C0
+    python poe_scan.py --live --fps 2     # живой режим: одна строка HP/MP/ES, перерисовка 2 раз/с (Ctrl+C — выход)
 """
 import ctypes
 import json
 import re
 import struct
 import sys
+import time
 from ctypes import wintypes
 
 if not hasattr(ctypes, "WinDLL"):
@@ -186,8 +188,14 @@ class Mem:
         self.pid = pid
         self.name = f"PID {pid}"
         self.base = self.rd_u64(self.peb + 0x10)   # PEB.ImageBaseAddress = base главного модуля
+        if not self.base:
+            raise OSError(f"чтение PEB.ImageBaseAddress не удался (процесс выходящий?)")
         pe = self.rd_u32(self.base + 0x3C)
+        if not pe:
+            raise OSError(f"чтение PE-заголовка @ 0x{self.base:X} не удался")
         self.size = self.rd_u32(self.base + pe + 0x18 + 0x40)  # OptionalHeader(PE32+).SizeOfImage
+        if not self.size:
+            raise OSError(f"чтение SizeOfImage @ 0x{self.base + pe + 0x18 + 0x40:X} не удался")
 
     def image_size(self):
         return self.size
@@ -273,9 +281,10 @@ def probe_local_players(mem, area, off, o, radius=0x40):
     return sorted(out, key=lambda t: (t[0], t[1]))
 
 
-def chain(mem, o, quiet=False):
+def chain(mem, o, quiet=False, out=None):
     """Цепочка косвенной адресации: base -> GameStates* -> ... -> Life-компонент.
-    quiet=True (--values): печатать только значения Vital'ов, трассировку шагов suppressed."""
+    quiet=True (--values): печатать только значения Vital'ов, трассировку шагов suppressed.
+    out=dict: после скана записать global_addr, после bucket — life_index (кэш для --live)."""
     def p(*a, **k):
         if not quiet:
             print(*a, **k)
@@ -288,6 +297,8 @@ def chain(mem, o, quiet=False):
             p(f"  anchor 0x{h[0]:X} disp {h[1]:+d} target 0x{h[2]:X}")
         raise SystemExit(1)
     anchor_live, disp, global_addr = hits[0]
+    if out is not None:
+        out["global_addr"] = global_addr
     p(f"(A) base 0x{base:X}  anchor 0x{anchor_live:X} (base+0x{anchor_live - base:X})  disp {disp:+d}")
     p(f"    GameStates глобальная @ 0x{global_addr:X}  (base+0x{global_addr - base:X})")
 
@@ -299,7 +310,7 @@ def chain(mem, o, quiet=False):
 
     # (C) CurrentStatePtr: текущее смещение = *(Last - 0x10)
     vec = mem.read(gs + o["CurrentStatePtr"], 24)
-    if not vec:
+    if not vec or len(vec) < 24:   # короткое чтение через границу региона
         raise SystemExit(f"(C) чтение CurrentStatePtr @GameState+0x{o['CurrentStatePtr']:X} не удалось")
     first, last, end = struct.unpack_from("<3Q", vec)
     cur = mem.rd_u64(last - 0x10) if last else None
@@ -308,6 +319,8 @@ def chain(mem, o, quiet=False):
 
     # (D) States buffer, InGameState = States[4].X
     states = mem.read(gs + o["States"], o["TOTAL"] * 16)
+    if not states or len(states) < o["TOTAL"] * 16:
+        raise SystemExit(f"(D) чтение States @GameState+0x{o['States']:X} не удалось")
     ptrs = [struct.unpack_from("<2Q", states, i * 16)[0] for i in range(o["TOTAL"])]
     ingame = ptrs[4]
     p(f"(D) States @+0x{o['States']:X}, {o['TOTAL']}×16; InGameState(4) @ 0x{ingame:X}")
@@ -346,10 +359,14 @@ def chain(mem, o, quiet=False):
 
     # (I) ItemStruct: VTable@0x00, EntityDetailsPtr@0x08, ComponentListPtr vector @+0x10..0x28
     item = mem.read(player, 0x28)
+    if not item or len(item) < 0x28:
+        raise SystemExit("(I) чтение ItemStruct не удалось")
     vtable, details = struct.unpack_from("<2Q", item, 0x00)
     comp_first, comp_last, comp_end = struct.unpack_from("<3Q", item, 0x10)
     lookup = mem.rd_u64(details + o["EntityDetailsLookup"])
     wstr = mem.read(details + o["EntityDetailsName"], 32)
+    if not wstr or len(wstr) < 24:
+        raise SystemExit("(I) чтение EntityDetails name не удалось")
     buf_ptr, reserved, length, pad14, capacity, pad1c = struct.unpack_from("<2Q4i", wstr)
     if capacity <= 8:
         name_raw = (struct.pack("<Q", buf_ptr) + struct.pack("<Q", reserved))[: length * 2]
@@ -360,6 +377,8 @@ def chain(mem, o, quiet=False):
 
     # (J) ComponentLookUp: bucket {Data(24), UnknownPtr(8), Capacity(4)}; элемент 16 байт
     bucket = mem.read(lookup + o["CLU_Bucket"], 24 + 8 + 4)
+    if not bucket or len(bucket) < 36:
+        raise SystemExit("(J) чтение CLU bucket не удалось")
     b_first, b_last, b_end, unknown, capacity = struct.unpack_from("<3QQI", bucket)
     elems = (b_last - b_first) // 16 if b_first else 0
     p(f"(J) bucket @+0x{o['CLU_Bucket']:X}: First 0x{b_first:X} Last 0x{b_last:X} "
@@ -372,13 +391,15 @@ def chain(mem, o, quiet=False):
     names = {}
     for i in range(elems):
         rec = mem.read(b_first + i * 16, 16)
-        if not rec:
+        if not rec or len(rec) < 12:
             continue
         np, idx = struct.unpack_from("<QI", rec[:12])
         s = read_cstring(mem, np)
         names[s] = idx
         if s == "Life" and comp and 0 <= idx < len(comp) // 8:
             life_addr = struct.unpack_from("<Q", comp, idx * 8)[0]
+    if out is not None and "Life" in names:
+        out["life_index"] = names["Life"]
     p(f"(J) Components: {len(names)} шт., Life index={names.get('Life')}, Life component @ 0x{life_addr:X}")
     if not life_addr:
         p("   первые имена:", list(names)[:20])
@@ -396,6 +417,200 @@ def chain(mem, o, quiet=False):
         pr = round(100 * current / unres) if unres > 0 else 0
         print(f"    {label} @+0x{off:X}: Current={current} Total={total} "
               f"ReservedFlat={flat} ReservedPercent={pct} -> {pr}%")
+
+
+def find_life_index(mem, b_first, elems):
+    """Индекс Life в CLU-bucket по именам (живой перескан, когда кэш life_index невалиден)."""
+    for i in range(elems):
+        rec = mem.read(b_first + i * 16, 16)
+        if not rec or len(rec) < 12:
+            continue
+        np, idx = struct.unpack_from("<QI", rec[:12])
+        if read_cstring(mem, np) == "Life":
+            return idx
+    return None
+
+
+def tick(mem, o, cache):
+    """Живой тик: только динамические указатели; global_addr, off_lp, life_index — из кэса старта.
+    ~8 ReadProcessMemory. Возвращает (ok, строка): True и значения HP/MP/ES,
+    либо False и статус при разрыве цепочки."""
+    gs = mem.rd_u64(cache["global_addr"])
+    if gs is None:
+        return False, "чтение global_addr не удалось — процесс закрыт?"
+    if not gs:
+        return False, "GameState=0 — загрузка/меню"
+    states = mem.read(gs + o["States"], o["TOTAL"] * 16)
+    if not states or len(states) < o["TOTAL"] * 16:   # короткое чтение через границу региона
+        return False, "чтение States не удалось — процесс закрыт?"
+    ingame = struct.unpack_from("<2Q", states, 4 * 16)[0]
+    area = mem.rd_u64(ingame + o["AreaInstanceData"])
+    if not area:
+        return False, "area=0 — загрузка зоны"
+    off_lp = cache.get("off_lp", o["LocalPlayers"])
+    v = read_vector(mem, area + off_lp)
+    if not v:
+        found = probe_local_players(mem, area, o["LocalPlayers"], o)
+        if not found:
+            return False, "LocalPlayers не найден (окно ±0x40) — смещения не подходят"
+        _, off_lp, v = found[0]
+        cache["off_lp"] = off_lp
+    player = mem.rd_u64(v[0])
+    if not player:
+        return False, "player=0 — загрузка"
+    valid = mem.rd_u8(player + o["EntityIsValid"])
+    if valid != 0xC:
+        return False, f"сущность невалидна: IsValid=0x{valid:X}"
+    item = mem.read(player, 0x28)
+    if not item or len(item) < 0x28:
+        return False, "чтение entity не удалось"
+    _, details, comp_first, comp_last = struct.unpack_from("<4Q", item, 0x00)
+    ncomp = (comp_last - comp_first) // 8 if comp_first and comp_last > comp_first else 0
+    if not ncomp:
+        return False, "вектор компонентов пуст"
+    lookup = mem.rd_u64(details + o["EntityDetailsLookup"])
+    if not lookup:
+        return False, "ComponentLookUp=0"
+    bucket = mem.read(lookup + o["CLU_Bucket"], 36)
+    if not bucket or len(bucket) < 36:
+        return False, "чтение bucket не удалось"
+    b_first, b_last = struct.unpack_from("<2Q", bucket, 0x00)
+    elems = (b_last - b_first) // 16 if b_first else 0
+    rescan = False
+    idx = cache.get("life_index")
+    if idx is None or idx >= elems:
+        idx = find_life_index(mem, b_first, elems)
+        cache["life_index"] = idx
+        rescan = True
+    if idx is None:
+        return False, "Life-компонент не в bucket"
+    if idx >= ncomp:
+        return False, f"Life index={idx} за границей comp-вектора ({ncomp})"
+    life = mem.rd_u64(comp_first + idx * 8)
+    if not life:
+        return False, "Life-компонент = 0"
+    lo = min(o["ReservedFlat"], o["VitalTotal"], o["VitalCurrent"])
+    hi = max(o["ReservedFlat"] + 4, o["ReservedPercent"] + 4,
+             o["VitalTotal"] + 4, o["VitalCurrent"] + 4)
+    span = hi - lo
+    parts = []
+    for label, key in (("HP", "Health"), ("MP", "Mana"), ("ES", "EnergyShield")):
+        base = life + o[key] + lo
+        block = mem.read(base, span)   # одно чтение на vital: ReservedFlat..VitalCurrent
+        if not block or len(block) < span:
+            return False, f"чтение {label} не удалось"
+        flat = struct.unpack_from("<I", block, o["ReservedFlat"] - lo)[0]
+        pct = struct.unpack_from("<I", block, o["ReservedPercent"] - lo)[0]
+        total = struct.unpack_from("<I", block, o["VitalTotal"] - lo)[0]
+        current = struct.unpack_from("<I", block, o["VitalCurrent"] - lo)[0]
+        reserved = int((pct / 10000 * total) + flat + 0.999999) if total else 0
+        unres = total - reserved
+        pr = round(100 * current / unres) if unres > 0 else 0
+        parts.append(f"{label} {current:>6}/{total:>6} {pr:>3}%")
+    line = " | ".join(parts)
+    if rescan:
+        line += " | life_index перескан"
+    return True, line
+
+
+def process_alive(pid):
+    """Жив ли процесс (OpenProcess LIMITED): детект выхода игрока из игры."""
+    h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return False
+    kernel32.CloseHandle(h)
+    return True
+
+
+def bootstrap(pid_hint, o, cache):
+    """Старт/ребут живого режима: процесс -> скан сигнатуры -> полная цепочка (кэш global_addr,
+    life_index). Возвращает (mem, None) при успехе, (None, статус) при неудаче; SystemExit
+    из chain() (не залогинен, смещения не подошли) превращается в статус."""
+    pids = find_pid(TARGET_NAMES)
+    if not pids:
+        return None, "процесс игры не найден — ожидание запуска"
+    pid = pid_hint if pid_hint and process_alive(pid_hint) else pids[0][1]
+    try:
+        mem = Mem(pid)
+    except OSError as e:
+        return None, str(e)
+    cache.clear()
+    try:
+        chain(mem, o, quiet=True, out=cache)
+    except SystemExit as exc:
+        mem.close()
+        return None, f"цепочка не завершилась: {exc}"
+    return mem, None
+
+
+def live_run(o, fps, pid_hint):
+    """Машина состояний живого режима: FAST — значения каждые 1/fps; статус (меню, не залогинен,
+    процесс закрыт) — сон 5 с. При смерти процесса — ребут: find_pid + Mem + перескан сигнатуры.
+    Строка перерисовывается только при смене текста (\r + padding)."""
+    period = 1.0 / fps
+    width = 76
+    last_text = None
+    cache = {}
+    mem = None
+    pid_cur = pid_hint
+    dead = False
+
+    def write(text):
+        nonlocal last_text
+        if text != last_text:
+            last_text = text
+            sys.stdout.write("\r" + text[:width].ljust(width))
+            sys.stdout.flush()
+
+    try:
+        next_t = time.perf_counter()
+        slow = True
+        while True:
+            if mem is None:
+                mem, status = bootstrap(pid_hint, o, cache)
+                if mem is None:
+                    write(status)
+                    slow = True
+                    time.sleep(5)
+                    continue
+                pid_cur = mem.pid
+                if dead:
+                    write(f"процесс перезапущен (PID {pid_cur}): base 0x{mem.base:X} — перескан сигнатуры")
+                    dead = False
+            ok, text = tick(mem, o, cache)
+            write(text)
+            if not ok:
+                slow = True
+                # свой VM_READ хэндл держит объект процесса живым, OpenProcess на вышедшем
+                # процессе с ним успехует — проверять живость нужно только отпустив mem.close()
+                mem.close()
+                if not process_alive(pid_cur):      # игрок вышел: хэндл мёртв — ребут
+                    mem = None
+                    cache.clear()
+                    dead = True
+                    write(f"процесс закрыт (PID {pid_cur}) — ожидание перезапуска")
+                else:
+                    try:                            # процесс жив (меню/загрузка): хэндл заново, кэш в силе
+                        mem = Mem(pid_cur)
+                    except OSError as e:
+                        mem = None
+                        cache.clear()
+                        dead = True
+                        write(f"процесс закрыт (PID {pid_cur}): {e} — ожидание перезапуска")
+                time.sleep(5)
+                continue
+            if slow:                                  # возврат из статуса к значениям: новый отсчёт
+                next_t = time.perf_counter()
+                slow = False
+            next_t += period
+            now = time.perf_counter()
+            if next_t < now:      # тик не вписался в период: без догона-очереди
+                next_t = now + period
+            time.sleep(next_t - now)
+    except KeyboardInterrupt:
+        sys.stdout.write("\n")
+    if mem:
+        mem.close()
 
 
 def offline_file_check():
@@ -493,9 +708,21 @@ if __name__ == "__main__":
                 o[key] = kv[key]
 
     quiet = "--values" in args
+    live = "--live" in args
+    fps = 2.0
+    if "--fps" in args:
+        fps = float(args[args.index("--fps") + 1])
+        if fps <= 0:
+            raise SystemExit("--fps должен быть > 0")
+    if live:
+        quiet = True
     pid = None
     if "--pid" in args:
         pid = int(args[args.index("--pid") + 1])
+    if live:
+        # статус-машина: ожидание процесса/логина (сон 5 с), FAST-темп по --fps, ребут при смерти процесса
+        live_run(o, fps, pid)
+        raise SystemExit(0)
     if pid is None:
         pids = find_pid(TARGET_NAMES)
         if not pids:
