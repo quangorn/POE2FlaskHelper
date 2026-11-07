@@ -21,7 +21,15 @@ add_link_options(/OPT:REF /OPT:ICF /INCREMENTAL:NO /DEBUG:NONE /MANIFEST:NO)
 string(REPLACE " /GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
 # Core logic, shared by the exe and the tests (plan.md §1).
-add_library(poe2_core STATIC src/core_placeholder.cpp)
+add_library(poe2_core STATIC
+    src/core_placeholder.cpp
+    src/args.cpp
+    src/json.cpp
+    src/log.cpp
+    src/config.cpp
+    src/offsets.cpp
+    src/keys.cpp
+    src/app.cpp)
 target_include_directories(poe2_core PUBLIC ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(poe2_core PUBLIC UNICODE _UNICODE)
 
@@ -30,7 +38,23 @@ target_link_libraries(POE2FlaskHelper PRIVATE
     poe2_core user32 kernel32 shell32 psapi gdi32 winmm)
 
 enable_testing()
-add_executable(poe2_tests tests/test_main.cpp)
+# All test TUs are compiled directly into the exe (never a static lib) so the
+# TEST() static registrars cannot be dropped by the linker (tests/test.h header note).
+add_executable(poe2_tests
+    tests/test_main.cpp
+    tests/test_tmp.cpp
+    tests/args_tests.cpp
+    tests/json_tests.cpp
+    tests/config_tests.cpp
+    tests/hotkey_tests.cpp
+    tests/offsets_tests.cpp
+    tests/log_tests.cpp
+    tests/paths_tests.cpp
+    tests/fakes/FakeClock.cpp)
 target_link_libraries(poe2_tests PRIVATE poe2_core)
+target_include_directories(poe2_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+# Real rev34 offsets file for the compatibility test (SPEC §6, poe_scan.py --offs-file).
+target_compile_definitions(poe2_tests PRIVATE
+    "P2_REPO_OFFSETS=\"${CMAKE_CURRENT_SOURCE_DIR}/offsets.json\"")
 # Relative command: works with both cygwin ctest and VS ctest (cwd = build dir).
 add_test(NAME unit COMMAND poe2_tests.exe)

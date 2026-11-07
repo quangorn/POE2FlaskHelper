@@ -50,24 +50,6 @@
 - статус: open
 - источник: reviewer stage 0
 
-### S0-6: src/main.cpp:15 — has_version_flag ищет подстроку во всей command line
-- файл: src/main.cpp:15
-- суть: любой аргумент/путь, содержащий `--version`, триггерит режим. На этапе 0 безвредно; ужесточить при появлении реальных аргументов.
-- статус: open
-- источник: reviewer stage 0
-
-### S0-7: tests/test.h:80-83 — статическая регистрация тестов
-- файл: tests/test.h:80-83
-- суть: при разбиении тестов по TУ порядок статик-инита неопределён, объекты из статик-либа могут выкидываться. Держать тесты в exe, не в либе; заметку в заголовок.
-- статус: open
-- источник: reviewer stage 0
-
-### S0-8: tests/test.h:35-40 — CHECK_EQ не печатает значения
-- файл: tests/test.h:35-40
-- суть: при падении не видно lhs/rhs — тяжело дебажить. Печатать значения для арифметических типов.
-- статус: open
-- источник: reviewer stage 0
-
 ### S0-9: build.sh:12-13 — vswhere -latest может выбрать VS без CMake/Ninja
 - файл: build.sh:12-13
 - суть: тогда cmake «command not found» внутри cmd; проверить наличие cmake.exe и FATAL с внятным сообщением.
@@ -103,3 +85,82 @@
 - суть: намеренно; действий нет.
 - статус: open (no-action)
 - источник: reviewer stage 0
+
+## Stage 1 — review (json, log, config, offsets, keys, app)
+
+### S1-1: src/json.cpp:112-124 — одиночная низкая суррогатная пара \udc00 принимается
+- файл: src/json.cpp:112-124
+- суть: \udc00 принимается и эмитит CESU-8 байты ed b0 80; отклонять симметрично одиночной высокой суррогат.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-2: README.txt:12,23 — скрытый флаг --batch в дистовом README
+- файл: README.txt:12,23
+- суть: поведение флага SPEC-совместимо, но SPEC §2.3 не предусматривает его в README; убрать из дистового README на этапе 5.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-3: README.txt:1,15 — «Stage 0 stub / незапускаемый каркас» уже ложь
+- файл: README.txt:1,15
+- суть: exe этапа 1 создаёт конфиг, логи, выходит чисто; переформулировать на этапе 5 (усугубление S0-10).
+- статус: open
+- источник: reviewer stage 1
+
+### S1-4: src/main.cpp:78-102 — конфиг/offsets I/O на главном потоке
+- файл: src/main.cpp:78-102
+- суть: SPEC §4.2 формально запрещает файловый I/O на главном потоке; по духу — речь о message loop, на старте других потоков нет. Добавить комментарий, что это startup-only, до message loop.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-5: tests/log_tests.cpp — нет теста откры失败的 лога и read-only exe dir
+- файл: tests/log_tests.cpp; src/log.cpp:133-136; src/main.cpp:94-100
+- суть: ветка healthy()==false (лог не открывается) и MessageBox-ветка read-only каталога exe не покрыты тестами. Тест: log path под regular file; read-only dir — через scratch.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-6: tests/test_tmp.cpp:8, tests/fakes/FakeClock.cpp:8 — anchor-функции не объявлены в заголовках
+- файл: tests/test_tmp.cpp:8; tests/fakes/FakeClock.cpp:8
+- суть: безвредно; объявить в headers.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-7: src/offsets.cpp:70 — field() отдаёт &o.Score как fallback для любого неизвестного имени
+- файл: src/offsets.cpp:70
+- суть: ветка Score должна быть явной, не fallback.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-8: src/config.cpp:207-208 — дублируется литерал массива имён Vital'ов
+- файл: src/config.cpp:207-208
+- суть: переиспользовать kVitalNames.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-9: numeric-поля не принимают float ({"threshold":50.0}) — нет теста
+- файл: src/config.cpp
+- суть: float в int-поле отвергается → warning+default; SPEC не запрещает; добавить тест, фиксирующий поведение.
+- статус: open
+- источник: reviewer stage 1
+
+### S1-10: src/args.cpp:34 — упрощения vs CommandLineToArgvW не задокументированы
+- файл: src/args.cpp:34, src/args.h
+- суть: `"a""b"` → `ab` (референс `a"b`); ведущие пробелы: референс даёт пустой argv[0], split его дропает. На match_flag не влияет; добавить одну строку документации в args.h.
+- статус: open
+- источник: reviewer stage 1 (re-review)
+
+### S1-11: tests/args_tests.cpp — два гэпа покрытия
+- файл: tests/args_tests.cpp (command_line_split_quoting)
+- суть: не покрыты незакрытая кавычка (`app.exe "unclosed --version`) и trailing 2n бэкслешей перед закрывающей кавычкой в конце строки (`app.exe C:\dir\\"`); обе ветки проверены ревьюером вручную как корректные.
+- статус: open
+- источник: reviewer stage 1 (re-review)
+
+### S1-12: src/system_clock.h:27 — TIME_ZONE_ID_INVALID молча штампуется UTC
+- файл: src/system_clock.h:27
+- суть: приемлемо для MVP (задокументировано); добавить одноразовную debug-запись в лог при неудачном взгляде зоны.
+- статус: open
+- источник: reviewer stage 1 (re-review)
+
+## Assets (задача, не проблема)
+- Пользователь предоставил res/on.wav и res/off.wav (валидные WAV: mono/16bit/44100, 0.82 с / 0.689 с). Задача: заменить заглушки enable.wav/disable.wav их содержимым (имена сохраняем — app.rc не меняем). Заглушки app.ico по-прежнему ждём.
+- статус: task
+- источник: user 2026-11-07

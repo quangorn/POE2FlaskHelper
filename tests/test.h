@@ -1,8 +1,16 @@
 #pragma once
 // Minimal test framework (plan.md §2): CHECK, CHECK_EQ, REQUIRE, registration,
 // report, exit code. No third-party frameworks.
+//
+// Registration robustness (MINOR_ISSUES S0-7): every test TU is compiled directly
+// into the poe2_tests exe, NEVER into a static library. The linker links each
+// object file named on the command line, so the static registrars created by
+// TEST() are never dropped. Registration order across TUs is unspecified and
+// irrelevant - tests are independent. run_all() treats an empty registry as a
+// failure, so a registration loss is reported loudly, not silently.
 
 #include <cstdio>
+#include <type_traits>
 #include <vector>
 
 namespace tf {
@@ -31,12 +39,19 @@ inline bool report(const char* what, int line, bool ok) {
     return false;
 }
 
+// CHECK_EQ failure prints lhs/rhs values for arithmetic types (MINOR_ISSUES S0-8);
+// non-arithmetic comparisons fall back to the generic message.
 template <typename A, typename B>
 void report_eq(const char* what, int line, const A& a, const B& b) {
     if (a == b) return;
     ++fails();
     if (quiet()) return;
-    printf("  FAIL line %d: %s (lhs is not equal to rhs)\n", line, what);
+    if constexpr (std::is_arithmetic_v<A> && std::is_arithmetic_v<B>) {
+        printf("  FAIL line %d: %s  lhs=%g rhs=%g\n",
+               line, what, static_cast<double>(a), static_cast<double>(b));
+    } else {
+        printf("  FAIL line %d: %s (lhs is not equal to rhs)\n", line, what);
+    }
 }
 
 // Run fn in isolation: count its failures, print nothing, restore state.
@@ -59,6 +74,10 @@ inline bool add_test(const char* name, Fn fn) {
 }
 
 inline int run_all() {
+    if (tests().empty()) {
+        printf("no tests registered - test TUs must be linked into the exe\n");
+        return 1;
+    }
     int failed = 0;
     for (const auto& t : tests()) {
         fails() = 0;

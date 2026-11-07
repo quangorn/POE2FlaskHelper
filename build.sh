@@ -86,6 +86,8 @@ rm -rf dist
 mkdir -p "$STAGE"
 cp "$EXE" "$STAGE/POE2FlaskHelper.exe"
 cp README.txt "$STAGE/README.txt"
+cp config.json "$STAGE/config.json"
+cp offsets.json "$STAGE/offsets.json"
 
 python - "$STAGE" "$VERSION" <<'PYEOF'
 import pathlib, sys, zipfile

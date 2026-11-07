@@ -1,0 +1,8 @@
+{
+  "CurrentStatePtr": 16, "States": 80, "TOTAL": 13, "AreaInstanceData": 656,
+  "LocalPlayers": 1472, "EntityId": 136, "EntityIsValid": 140,
+  "EntityDetailsName": 8, "EntityDetailsLookup": 40, "CLU_Bucket": 40,
+  "TotalOff": 52, "CurrentOff": 56, "ReservedOff": 28, "ReservedFlat": 24,
+  "HealthOff": 476, "ManaOff": 564, "ESOff": 628, "WardOff": 788, "RageOff": 716,
+  "BackPtrOff": 16, "Score": 9
+}

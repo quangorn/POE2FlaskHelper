@@ -1,0 +1,18 @@
+{
+  "configVersion": 1,
+  "hotkeys": { "toggleScanner": "Ctrl+9" },
+  "scanner": {
+    "enabledOnStart": false,
+    "pollIntervalMs": 50,
+    "requireGameForeground": true,
+    "processNames": ["PathOfExile.exe", "PathOfExile_x64.exe", "PathOfExileSteam.exe", "PathOfExile_KG.exe"]
+  },
+  "vitals": {
+    "Health":       { "enabled": true,  "key": "1", "threshold": 50, "cooldownMs": 1000 },
+    "Mana":         { "enabled": true,  "key": "2", "threshold": 40, "cooldownMs": 1000 },
+    "EnergyShield": { "enabled": false, "key": "3", "threshold": 35, "cooldownMs": 1000 },
+    "Ward":         { "enabled": false, "key": "4", "threshold": 30, "cooldownMs": 1000 },
+    "Rage":         { "enabled": false, "key": "5", "threshold": 20, "cooldownMs": 2000 }
+  },
+  "logging": { "level": "info", "file": "logs/app.log", "maxSizeKb": 1024, "keepFiles": 3 }
+}
