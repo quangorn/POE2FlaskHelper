@@ -1,6 +1,6 @@
 """Прототип сканера памяти PathOfExile.exe на чистом Python (ctypes, только чтение).
 
-Логика повторяет C#-код ауры POE2-Mem: сигнатура -> GameStates* -> цепочка -> HP/MP/ES.
+Логика повторяет C#-код ауры POE2-Mem: сигнатура -> GameStates* -> цепочка -> HP/MP/ES/Ward.
 Запись в память процесса отсутствует.
 
     python poe_scan.py                 # живой запуск: найти процесс и прочитать значения
@@ -49,12 +49,14 @@ TARGET_NAMES = ("PathOfExile.exe", "PathOfExile_x64.exe", "PathOfExileSteam.exe"
 
 # Смещения по ревизиям (из code/revNNN)
 OFFS = {
-    # rev34: текущий патч (проверено живым прогоном 2026-11-07): от rev33 отличается только
-    # LocalPlayers 0x5B8 -> 0x5C0 (+8). Остальные поля цепочки совпали.
+    # rev34: текущий патч (проверено живым прогоном 2026-11-07): от rev33 отличается
+    # LocalPlayers 0x5B8 -> 0x5C0 (+8) и добавленными Vital'ами Ward @+0x2E0 (Total@+0x314,
+    # Current@+0x38) и Rage @+0x298 (Total@+0x2CC, Life index 4; Reserved flat=0 pct=0).
+    # Разовые сканы find_ward/find_vital. Цепочка совпала.
     "rev34": dict(CurrentStatePtr=0x10, States=0x50, TOTAL=13, AreaInstanceData=0x290,
                   LocalPlayers=0x5C0, EntityId=0x88, EntityIsValid=0x8C,
                   EntityDetailsName=0x08, EntityDetailsLookup=0x28, CLU_Bucket=0x28,
-                  Health=0x1A8, Mana=0x200, EnergyShield=0x240,
+                  Health=0x1A8, Mana=0x200, EnergyShield=0x240, Ward=0x2E0, Rage=0x298,
                   VitalTotal=0x34, VitalCurrent=0x38, ReservedFlat=0x18, ReservedPercent=0x1C),
     "rev33": dict(CurrentStatePtr=0x10, States=0x50, TOTAL=13, AreaInstanceData=0x290,
                   LocalPlayers=0x5B8, EntityId=0x88, EntityIsValid=0x8C,
@@ -405,8 +407,12 @@ def chain(mem, o, quiet=False, out=None):
         p("   первые имена:", list(names)[:20])
         raise SystemExit("Life-компонент не найден")
 
-    # Vital'ы
-    for label, off in (("Health", o["Health"]), ("Mana", o["Mana"]), ("EnergyShield", o["EnergyShield"])):
+    # Vital'ы (Ward печатается, только если смещение есть в раскладе)
+    stats = [("Health", o["Health"]), ("Mana", o["Mana"]), ("EnergyShield", o["EnergyShield"])]
+    for extra in ("Ward", "Rage"):
+        if o.get(extra):
+            stats.append((extra, o[extra]))
+    for label, off in stats:
         v = life_addr + off
         total = mem.rd_u32(v + o["VitalTotal"])
         current = mem.rd_u32(v + o["VitalCurrent"])
@@ -494,7 +500,12 @@ def tick(mem, o, cache):
              o["VitalTotal"] + 4, o["VitalCurrent"] + 4)
     span = hi - lo
     parts = []
-    for label, key in (("HP", "Health"), ("MP", "Mana"), ("ES", "EnergyShield")):
+    stats = (("HP", "Health"), ("MP", "Mana"), ("ES", "EnergyShield"))
+    if o.get("Ward"):
+        stats += (("WR", "Ward"),)
+    if o.get("Rage"):
+        stats += (("RG", "Rage"),)
+    for label, key in stats:
         base = life + o[key] + lo
         block = mem.read(base, span)   # одно чтение на vital: ReservedFlat..VitalCurrent
         if not block or len(block) < span:
@@ -511,6 +522,62 @@ def tick(mem, o, cache):
     if rescan:
         line += " | life_index перескан"
     return True, line
+
+
+class COORD(ctypes.Structure):
+    _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+
+class SMALL_RECT(ctypes.Structure):
+    _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short),
+                ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
+
+
+class CONSOLE_SCREEN_BUFFER_INFO(ctypes.Structure):
+    _fields_ = [("Size", COORD), ("Cursor", COORD), ("Attributes", wintypes.WORD),
+                ("Window", SMALL_RECT), ("MaxWindowSize", COORD)]
+
+
+kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+kernel32.GetStdHandle.restype = wintypes.HANDLE
+kernel32.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(CONSOLE_SCREEN_BUFFER_INFO)]
+kernel32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+kernel32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+
+
+def console_width():
+    """Ширина окна консоли (колонок); None, если вывод не консоль."""
+    h = kernel32.GetStdHandle(-11)          # STD_OUTPUT_HANDLE
+    info = CONSOLE_SCREEN_BUFFER_INFO()
+    if not kernel32.GetConsoleScreenBufferInfo(h, ctypes.byref(info)):
+        return None
+    return info.Window.Right - info.Window.Left + 1
+
+
+def enable_vt():
+    """VT-обработка ANSI-эскейпов (\\x1b[J, перемещения курсора) в консоли; False, если консоль
+    не принимает — тогда отрисовка остаётся старой: одна строка \\r + padding."""
+    h = kernel32.GetStdHandle(-11)
+    mode = wintypes.DWORD()
+    if not kernel32.GetConsoleMode(h, ctypes.byref(mode)):
+        return False
+    return bool(kernel32.SetConsoleMode(h, mode.value | 0x0004))   # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+
+
+def pack_parts(text, width):
+    """Живая строка режется по ' | ' на линии <=width (Vital'ы не рвутся); цельная
+    статус-строка остаётся одной линией."""
+    lines, cur = [], ""
+    for p in text.split(" | "):
+        cand = (cur + " | " + p) if cur else p
+        if len(cand) <= width:
+            cur = cand
+        else:
+            if cur:
+                lines.append(cur)
+            cur = p
+    lines.append(cur)
+    return lines
 
 
 def process_alive(pid):
@@ -546,21 +613,36 @@ def bootstrap(pid_hint, o, cache):
 def live_run(o, fps, pid_hint):
     """Машина состояний живого режима: FAST — значения каждые 1/fps; статус (меню, не залогинен,
     процесс закрыт) — сон 5 с. При смерти процесса — ребут: find_pid + Mem + перескан сигнатуры.
-    Строка перерисовывается только при смене текста (\r + padding)."""
+    Строка перерисовывается НА МЕСТЕ при смене текста: VT-эскейпы чистят предыдущие линии
+    (подъём курсора + \\x1b[J) и печатают новые, реанные по ' | ' под ширину консоли
+    (Vital'ы не рвутся). Без VT — fallback одной строкой (\r + padding, обрезка)."""
     period = 1.0 / fps
-    width = 76
+    vt = enable_vt()
     last_text = None
+    prev_n = 1        # линий предыдущей отрисовки (для подъёма курсора)
     cache = {}
     mem = None
     pid_cur = pid_hint
     dead = False
 
     def write(text):
-        nonlocal last_text
-        if text != last_text:
-            last_text = text
-            sys.stdout.write("\r" + text[:width].ljust(width))
+        nonlocal last_text, prev_n
+        if text == last_text:
+            return
+        w = console_width()
+        width = min(120, w) if w else 120
+        lines = [ln[:width] for ln in pack_parts(text, width)]
+        if vt:
+            # курсор стоит на последней линии предыдущей отрисовки: подняться, \r,
+            # \x1b[J — очистить от курсора до конца экрана; печатать без \n на конце
+            sys.stdout.write((f"\x1b[{prev_n - 1}A" if prev_n > 1 else "") + "\r\x1b[J")
+            sys.stdout.write("\r\n".join(lines))
             sys.stdout.flush()
+            prev_n = len(lines)
+        else:
+            sys.stdout.write("\r" + lines[0].ljust(width))
+            sys.stdout.flush()
+        last_text = text
 
     try:
         next_t = time.perf_counter()
@@ -691,7 +773,8 @@ if __name__ == "__main__":
         t = kv.get("TotalOff", o["VitalTotal"])
         o["VitalTotal"] = t
         for k, name in (("HealthOff", "Health"), ("ManaOff", "Mana"),
-                        ("ESOff", "EnergyShield")):
+                        ("ESOff", "EnergyShield"), ("WardOff", "Ward"),
+                        ("RageOff", "Rage")):
             if k in kv:
                 o[name] = kv[k] - t
         if "CurrentOff" in kv:

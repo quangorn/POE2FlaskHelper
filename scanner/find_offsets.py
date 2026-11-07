@@ -199,6 +199,10 @@ class LiveMem:
         d = self.read(addr, 4)
         return struct.unpack_from("<I", d)[0] if d and len(d) == 4 else None
 
+    def rd_u8(self, addr):
+        d = self.read(addr, 1)
+        return d[0] if d else None
+
     def close(self):
         kernel32.CloseHandle(self.h)
 

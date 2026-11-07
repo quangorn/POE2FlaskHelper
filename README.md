@@ -1,11 +1,12 @@
 # POE2FlaskHelper
 
-Исследование памяти `PathOfExile.exe` (Path of Exile 2) и сканер чтения HP/Mana/EnergyShield.
+Исследование памяти `PathOfExile.exe` (Path of Exile 2) и сканер чтения HP/Mana/ES/Ward/Rage.
 
 ## Структура
 
 - [`scanner/`](scanner/README.md) — работа с живым процессом: чтение значений по
-  цепочке смещений (`poe_scan.py`) и поиск самих смещений (`find_offsets.py`).
+  цепочке смещений (`poe_scan.py`), поиск смещений HP/Mana/ES (`find_offsets.py`) и
+  новых Vital'ов Ward/Rage/… (`find_vital.py`).
   Только чтение, запись в память отсутствует.
 - [`research/REPORT.md`](research/REPORT.md) — разбор цепочки адресации, кода ауры
   POE2-Mem (Cheat Engine), сравнение ревизий.

@@ -1,6 +1,6 @@
 # Сканер памяти PathOfExile.exe
 
-Работа с **живым процессом** игры: чтение HP/Mana/EnergyShield по цепочке смещений
+Работа с **живым процессом** игры: чтение HP/Mana/EnergyShield/Ward/Rage по цепочке смещений
 (`poe_scan.py`) и поиск самих смещений по известным значениям (`find_offsets.py`).
 Запись в память процесса отсутствует — только чтение.
 
@@ -19,7 +19,7 @@ cygwin-python не подходит: у него нет `ctypes.WinDLL`
 ## `poe_scan.py` — чтение значений по цепочке
 
 ```
-python poe_scan.py                              # найти PathOfExile*.exe → скан сигнатуры → цепочка → HP/MP/ES
+python poe_scan.py                              # найти PathOfExile*.exe → скан сигнатуры → цепочка → HP/MP/ES/Ward/Rage
 python poe_scan.py --file                       # офлайн: сигнатура в файле бинарника (1 совпадение → VA 0x45EE348)
 python poe_scan.py --rev rev32                  # смещения другой ревизии
 python poe_scan.py --selftest                   # цепочка на синтетике, без процесса игры
@@ -38,11 +38,11 @@ RIP-расчёт якоря → шаги (A)–(J): StdVector `{First,Last,End}`
 | Опция | Значение |
 |---|---|
 | `--file` | скан сигнатуры по файлу бинарника (`EXE_PATH`), без процесса |
-| `--rev NAME` | смещения ревизии (`rev34` по умолчанию — текущий патч, проверен живым прогоном; есть `rev33`, `rev32`, `rev2025-10-11`) |
-| `--offs K=0x..,…` | смещения подаются вручную: `HealthOff`, `TotalOff`, `CurrentOff`, `ManaOff`, `ESOff`, `BackPtrOff`, `ReservedOff`, `LocalPlayers` |
+| `--rev NAME` | смещения ревизии (`rev34` по умолчанию — текущий патч, проверен живым прогоном; есть `rev33`, `rev32`, `rev2025-10-11`; rev34: LocalPlayers +8 и Vital'ы `Ward @+0x2E0`, `Rage @+0x298`) |
+| `--offs K=0x..,…` | смещения подаются вручную: `HealthOff`, `TotalOff`, `CurrentOff`, `ManaOff`, `ESOff`, `WardOff`, `RageOff`, `BackPtrOff`, `ReservedOff`, `LocalPlayers` |
 | `--offs-file FILE` | то же из JSON (те же ключи, что в `--offs`) |
 | `--pid N` | PID процесса (иначе поиск по имени) |
-| `--values` | подавляет трассировку шагов (A)–(J), печатает только три Vital'а |
+| `--values` | подавляет трассировку шагов (A)–(J), печатает Vital'ы (HP/Mana/ES/Ward/Rage) |
 | `--selftest` | прогон цепочки на синтетике `find_offsets.build_fake`, офлайн |
 
 Скорости (замерены): одно `ReadProcessMemory` (4 байта) ~3 мкс; скан сигнатуры по 78 МБ образа 0.08 с.
@@ -56,6 +56,8 @@ python poe_scan.py --offs-file offsets.json --values
     Health @+0x1A8: Current=4000 Total=5000 ReservedFlat=100 ReservedPercent=2023 -> 103%
     Mana   @+0x200: Current=2000 Total=3000 ...
     EnergyShield @+0x240: ...
+    Ward   @+0x2E0: Current=840 Total=840 ReservedFlat=0 ReservedPercent=0 -> 100%
+    Rage   @+0x298: Current=15 Total=30 ReservedFlat=0 ReservedPercent=0 -> 50%
 ```
 
 ## `find_offsets.py` — поиск смещений по значениям
@@ -147,15 +149,44 @@ filler 128 МБ, HP-совпадений 513: scan 0.03 с, discover 0.03 с, po
 - значения Total читать в полном HP (Current == Total даёт лишние совпадения);
 - кандидатов с наибольшим скором передавать в `poe_scan.py --offs HealthOff=…,TotalOff=…,…`.
 
+## `find_vital.py` — разовый поиск смещения нового Vital'а (Ward/Rage/…)
+
+Когда патч добавляет Vital'ы в Life (смещения HP/Mana/ES уже известны из `offsets.json`),
+смещение ищется по значениям: цепочка (A)–(J) из `poe_scan.py` берёт Life-компонент локального
+игрока, в окне `Life..Life+--span` ищутся целочисленные совпадения `int == max`, кандидат
+проверяется как Vital (обязательный back-pointer на owner-компонент, vtable внутри главного
+модуля, stat-id'ы, ReservedFlat/Percent; current проверяется в `CurrentOff`, +2 к скором).
+Порядок стадий: окно Life → скан всех компонентов игрока (comp-вектор, и до, и после Life,
+owner разрешается по CLU bucket) → куча.
+
+```
+python find_vital.py --label Ward --max 840 --current 840
+python find_vital.py --label Rage --max 30 --current 15
+python find_vital.py --label Spirit --max 949            # только max: печатается фактический Current
+python find_vital.py --label Spirit --max 110 --types i16,u16
+python find_vital.py --selftest      # синтетика: Rage 32-бит в Life, Spirit 16-бит в Position
+```
+
+Опции: `--types` (u32,i32,u16,i16,u64,i64 — по умолчанию все; int16 с нулевыми верхними
+байтами неотличим от u32, offset один), `--span` (окно 0x1000), `--pid`, `--offs-file`,
+`--rev`, `--heap` (пропустить Life/компоненты). Лучший кандидат печатает готовый JSON-ключ
+`"LabelOff": N` и команду `poe_scan.py --offs LabelOff=…`. Vital вне Life-компонента —
+печатается owner-компонент по имени и смещения Vital'а внутри него, Life-ключ не пишется.
+
 ## `offsets.json` — расклад, сохранённый сканером
 
 ```json
 {
   "HealthOff": 476,    "TotalOff": 52,     "ManaOff": 564,   "ESOff": 628,
+  "WardOff": 788,      "RageOff": 716,
   "BackPtrOff": 16,    "CurrentOff": 56,   "LocalPlayers": 1472,
   "Score": 9
 }
 ```
+
+`WardOff`/`RageOff` — Vital'ы, добавленные патчем 1.4.0 (позиции Total внутри Life, та же
+семантика, что HealthOff/ManaOff/ESOff; основы @+0x2E0 и @+0x298, Life index 4). Найдены
+сканером `find_vital.py`; Reserved у них нулевые.
 
 Ключи — те же, что у `--offs`. `LocalPlayers` обязателен: без него цепочка не доходит до списка игроков.
 Адреса кучи (`Life`, `Entity`, `AreaInstance`) в JSON не пишутся — они меняются каждый запуск.
