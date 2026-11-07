@@ -21,7 +21,9 @@ add_link_options(/OPT:REF /OPT:ICF /INCREMENTAL:NO /DEBUG:NONE /MANIFEST:NO)
 # CMake's MSVC defaults add /GR; drop it so our /GR- does not trigger D9025.
 string(REPLACE " /GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
-# Core logic, shared by the exe and the tests (plan.md §1).
+# Core logic, shared by the exe and the tests (plan.md §1): Win32-free, all OS and
+# time interaction goes through the injected interfaces (IMemoryReader,
+# IMemoryReaderFactory, IProcessProvider, IClock).
 add_library(poe2_core STATIC
     src/core_placeholder.cpp
     src/args.cpp
@@ -31,18 +33,25 @@ add_library(poe2_core STATIC
     src/offsets.cpp
     src/keys.cpp
     src/state.cpp
-    src/scanner.cpp
+    src/signature.cpp
+    src/chain.cpp
+    src/vital_math.cpp
+    src/scanner_session.cpp
     src/app.cpp)
 target_include_directories(poe2_core PUBLIC ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(poe2_core PUBLIC UNICODE _UNICODE)
 
 # App layer: tray/hotkey/sound are Win32 (SPEC §4.2: UI/GDI on the main thread), the
-# state/label/sound-id mapping is pure core code (src/state.cpp).
+# scanner thread wrapper, the real process provider and the ReadProcessMemory reader
+# are the exe's OS edge - poe2_core units never compile them.
 add_executable(POE2FlaskHelper WIN32
     src/main.cpp
     src/tray.cpp
     src/hotkeys.cpp
     src/sound.cpp
+    src/scanner.cpp
+    src/game_process.cpp
+    src/mem/win_reader.cpp
     res/app.rc)
 target_link_libraries(POE2FlaskHelper PRIVATE
     poe2_core user32 kernel32 shell32 psapi gdi32 winmm)
@@ -61,7 +70,15 @@ add_executable(poe2_tests
     tests/offsets_tests.cpp
     tests/log_tests.cpp
     tests/paths_tests.cpp
-    tests/fakes/FakeClock.cpp)
+    tests/fake_memory_tests.cpp
+    tests/signature_tests.cpp
+    tests/chain_tests.cpp
+    tests/vital_math_tests.cpp
+    tests/session_tests.cpp
+    tests/synthetic_layout.cpp
+    tests/fakes/FakeClock.cpp
+    tests/fakes/FakeMemory.cpp
+    tests/fakes/FakeProcess.cpp)
 target_link_libraries(poe2_tests PRIVATE poe2_core)
 target_include_directories(poe2_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 # Real rev34 offsets file for the compatibility test (SPEC §6, poe_scan.py --offs-file).

@@ -1,10 +1,12 @@
-// Stage 2: tray + global hotkey + sound on top of the stage 1 startup pipeline.
+// Stage 3: the scanner worker thread on top of the stage 2 tray/hotkey/sound app.
 // Pipeline (--version -> single instance -> config -> logger -> offsets) is unchanged;
-// after it the app creates a hidden top-level window, registers the hotkey, adds the
-// tray icon and runs the message loop (SPEC §4.1, §4.2, §4.3, §4.4, §4.5).
-// Main thread = UI/GDI only: no ReadProcessMemory, no log file I/O (the logger is
-// async, SPEC §4.2). Every state/label/sound mapping is a pure poe2_core function
-// (src/state.cpp, tested); the scanner thread is the stage 3 stub.
+// after it the app creates the hidden window, registers the hotkey, adds the tray
+// icon, starts the scanner thread and runs the message loop (SPEC §4.1-§4.6).
+//
+// Thread split (SPEC §4.2): the main thread owns UI/GDI (tray, PlaySound, the message
+// loop) and never reads memory; the scanner thread owns the process handle, all
+// ReadProcessMemory calls and the poll timers. Control between them is std::atomic
+// (enable, stop) + an event; the thread is joined at shutdown, the logger closes last.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -18,12 +20,15 @@
 #include "app.h"
 #include "args.h"
 #include "config.h"
+#include "game_process.h"
 #include "hotkeys.h"
 #include "keys.h"
 #include "log.h"
+#include "mem/win_reader.h"
 #include "offsets.h"
 #include "res_ids.h"
 #include "scanner.h"
+#include "scanner_session.h"
 #include "sound.h"
 #include "state.h"
 #include "system_clock.h"
@@ -63,10 +68,12 @@ static std::string to_utf8(const wchar_t* w) {
 // Enable/disable path, shared by the hotkey and the tray menu (SPEC §4.5: both toggle
 // the state and play the matching WAV). State transition + WAV id come from pure core
 // code (state.cpp); PlaySound is async, so the UI is never blocked on the sound.
-static void toggle_scanner(poe2::AppStatus& st, poe2::ScannerStub& stub,
+// The scanner enable flag is an atomic in ScannerCtl: the thread sees it on its next
+// wake, no UI call crosses into the thread.
+static void toggle_scanner(poe2::AppStatus& st, poe2::Scanner& scanner,
                            poe2::Logger& logger, HINSTANCE hInst, bool enable) {
-    uint16_t wav = poe2::set_scanner_enabled(st, enable);
-    if (enable) stub.start(); else stub.stop();  // scanner thread stub (plan.md stage 2)
+    const uint16_t wav = poe2::set_scanner_enabled(st, enable);
+    scanner.set_enabled(enable);
     logger.log(poe2::LogLevel::Info, enable ? "scanner enabled" : "scanner disabled");
     if (!poe2::play_wav(wav, hInst)) {
         // SPEC §4.5: resource error is a warning, the toggle already happened.
@@ -183,10 +190,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     //    and the tray callbacks).
     poe2::AppStatus status;
     status.hotkey_text = cres.cfg.toggleHotkey;
-    poe2::ScannerStub stub;
 
-    // Hotkey string was validated by config_parse (SPEC §4.4: modifier or F-key),
-    // re-parsed here for RegisterHotKey. Defensive: fall back to the default combo.
     poe2::HotkeyResult hr = poe2::parse_hotkey(cres.cfg.toggleHotkey);
     if (!hr.ok) {
         logger.log(poe2::LogLevel::Warn, "hotkey string rejected (" + hr.error
@@ -195,16 +199,34 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         status.hotkey_text = "Ctrl+9";
     }
 
+    // Scanner wiring: the pure session state machine (poe2_core) with the real Win32
+    // providers injected (SPEC §4.2): the thread owns the handle and all reads, main
+    // passes only atomics. Declared after logger/offsets so shutdown destruction
+    // order (reverse) joins the thread before the log file closes.
+    poe2::Win32ProcessProvider proc;
+    poe2::WinMemoryReaderFactory factory;
+    poe2::ScannerCtl ctl;
+    poe2::ScannerSession::Deps deps{proc, factory, clock, logger, ores.offsets,
+                                    cres.cfg.scanner};
+    poe2::Scanner scanner(deps, ctl);
+
     int exit_code = 0;
-    poe2::TrayHost host{hInst, logger, status, {}};
+    poe2::TrayHost host{hInst, logger, status, {}, {}};
     poe2::Tray tray(host);
     // Command handler: the hotkey and the menu toggle item both flip the state and
     // play the matching WAV (SPEC §4.5). Assigned after tray so the handler can
     // refresh the tooltip. Exit is handled by the tray WndProc (PostQuitMessage).
     host.on_cmd = [&](poe2::TrayCmd cmd) {
         if (cmd == poe2::TrayCmd::Toggle) {
-            toggle_scanner(status, stub, logger, hInst, !status.scanner_enabled);
+            toggle_scanner(status, scanner, logger, hInst, !status.scanner_enabled);
             tray.update_tooltip();  // tooltip reflects the new state (SPEC §4.3)
+        }
+    };
+    // Status timer handler: merges the scanner thread's atomic snapshot into the app
+    // status; the tooltip refresh happens only when the displayed state changed.
+    host.on_timer = [&]() {
+        if (poe2::apply_scanner_snapshot(status, scanner.phase(), scanner.pid())) {
+            tray.update_tooltip();
         }
     };
     if (!tray.create()) {
@@ -223,11 +245,17 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         }
         tray.add_icon();  // tooltip carries the state incl. the hotkey-busy status
 
+        // SPEC §4.2: the scanner thread exists for the whole run; while the module is
+        // off its step performs zero reads (SPEC §4.6). The 500 ms timer polls the
+        // atomic snapshot into the tooltip.
+        scanner.start();
+        SetTimer(tray.hwnd(), poe2::kStatusTimerId, 500, nullptr);
+
         // SPEC §5: scanner.enabledOnStart applies at start (hotkey/menu paths are the
         // same toggle_scanner() code, so the WAV plays here too).
         if (cres.cfg.scanner.enabledOnStart) {
             logger.log(poe2::LogLevel::Info, "scanner.enabledOnStart is true, enabling at startup");
-            toggle_scanner(status, stub, logger, hInst, true);
+            toggle_scanner(status, scanner, logger, hInst, true);
             tray.update_tooltip();
         }
 
@@ -246,14 +274,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         logger.log(poe2::LogLevel::Info, "message loop ended");
     }
 
-    // Clean shutdown (plan.md stage 2: scanner stub stop, log close, icon removal).
-    stub.stop();
+    // Clean shutdown (SPEC §4.2): join the scanner thread first, then sound, hotkey,
+    // NIM_DELETE, log flush. Destruction order at scope exit is reverse of
+    // declaration: scanner (joins), tray (NIM_DELETE + UnregisterClass), logger.
+    scanner.stop();
     poe2::stop_sound();
     poe2::unregister_toggle_hotkey(tray.hwnd());
     tray.remove_icon();  // NIM_DELETE - no orphan icon after exit
-    logger.log(poe2::LogLevel::Info,
-               "POE2FlaskHelper stopped (scanner stub: " + std::to_string(stub.starts())
-               + " starts, " + std::to_string(stub.stops()) + " stops)");
+    logger.log(poe2::LogLevel::Info, "POE2FlaskHelper stopped (scanner thread joined)");
     logger.flush();  // startup + shutdown lines are on disk before the process ends
     CloseHandle(mutex);
     return exit_code;

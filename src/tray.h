@@ -3,15 +3,18 @@
 // every state/label decision comes from poe2_core (state.cpp) and is tested there.
 //
 // Window class name: poe2::kTrayWindowClass = "POE2FlaskHelperTrayWindow".
-// The window is top-level (parent NULL) and created WITHOUT WS_VISIBLE, so FindWindowW
-// finds it while nothing is shown on screen.
+// The window is top-level (parent NULL) and created WITHOUT WS_VISIBLE. FindWindowW
+// does NOT find invisible windows, so a hidden window is located with:
+//   EnumWindows + GetClassNameW (compare against kTrayWindowClass).
+// That is the documented discovery path for this window.
 //
 // Programmatic exit for a reviewer / smoke test (documented, reproducible):
-//   HWND hwnd = FindWindowW(L"POE2FlaskHelperTrayWindow", nullptr);
+//   HWND hwnd = FindWindowW(L"POE2FlaskHelperTrayWindow", nullptr);  // visible case
+//   // hidden window: EnumWindows + GetClassNameW == kTrayWindowClass
 //   PostMessageW(hwnd, WM_COMMAND, poe2::kCmdExit /* 1002 */, 0);  // == clicking Exit
 //   // equivalent: PostMessageW(hwnd, WM_CLOSE, 0, 0) -> DestroyWindow -> WM_DESTROY
 // Both paths end the message loop (PostQuitMessage) and run the clean shutdown in
-// main.cpp: scanner stub stop, sound off, UnregisterHotKey, NIM_DELETE, log flush.
+// main.cpp: scanner thread stop+join, sound off, UnregisterHotKey, NIM_DELETE, log flush.
 //
 // The menu item ids are pure core constants (src/state.cpp): kCmdToggle = 1001 flips
 // the scanner exactly like the hotkey, kCmdExit = 1002 exits.
@@ -32,24 +35,32 @@ namespace poe2 {
 
 extern const wchar_t* const kTrayWindowClass;
 
-// Tray dependencies injected by main.cpp (app layer): instance, logger, live state
-// and the command handler that performs toggle/sound.
+// Status timer id (SPEC §4.3 tooltip): main.cpp sets a 500 ms SetTimer on the tray
+// window; WM_TIMER lands in the tray WndProc and calls TrayHost::on_timer, which
+// merges the scanner thread's atomic snapshot into AppStatus (state.cpp).
+constexpr UINT_PTR kStatusTimerId = 1;
+
+// Tray dependencies injected by main.cpp (app layer): instance, logger, live state,
+// the command handler that performs toggle/sound, and the timer handler that polls
+// the scanner status snapshot.
 struct TrayHost {
     HINSTANCE hInst;
     Logger& logger;
     AppStatus& status;
     std::function<void(TrayCmd)> on_cmd;
+    std::function<void()> on_timer;
 };
 
 class Tray {
 public:
     explicit Tray(TrayHost& host);
-    ~Tray();  // defensive NIM_DELETE if the icon is still there (no orphan icon)
+    ~Tray();  // defensive NIM_DELETE if the icon is still there (no orphan icon),
+              // KillTimer, DestroyWindow, UnregisterClassW (class/window balance)
     Tray(const Tray&) = delete;
     Tray& operator=(const Tray&) = delete;
 
     // Registers the window class and creates the hidden window (WM_HOTKEY, tray
-    // callbacks and menu commands land in its WndProc).
+    // callbacks, menu commands and the status WM_TIMER land in its WndProc).
     bool create();
     HWND hwnd() const { return hwnd_; }
 
@@ -66,6 +77,7 @@ private:
     TrayHost& host_;
     HWND hwnd_ = nullptr;
     bool icon_added_ = false;
+    bool class_registered_ = false;
 };
 
 }  // namespace poe2

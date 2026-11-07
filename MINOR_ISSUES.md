@@ -169,38 +169,52 @@
 
 ## Stage 2 — review (tray, hotkeys, sound, state)
 
-### S2-2: src/tray.cpp:82-83 — info-лог каждого tray-callback события, включая WM_MOUSEMOVE
-- файл: src/tray.cpp:82-83
-- суть: ~50 [info] строк за 2.5 с ховера; SPEC §7 info-лист не включает tray-события. Логировать hover/no-op на debug, info только для значимых.
-- статус: open
-- источник: reviewer stage 2
-
-### S2-3: src/hotkeys.cpp:8 — нет MOD_NOREPEAT (0x4000)
-- файл: src/hotkeys.cpp:8
-- суть: удержание Ctrl+9 повторяет WM_HOTKEY → спам переключений и WAV. Добавить hk.mods | 0x4000.
-- статус: open
-- источник: reviewer stage 2
-
-### S2-4: src/tray.cpp:52 — RegisterClassW без пары UnregisterClass
-- файл: src/tray.cpp:52, ~Tray
-- суть: имплицитно чистится на выходе; добавить UnregisterClassW(kTrayWindowClass, host_.hInst) в ~Tray для баланса.
-- статус: open
-- источник: reviewer stage 2
-
 ### S2-5: src/main.cpp:228-232 — startup-enable играет enable.wav
 - файл: src/main.cpp:228-232
 - суть: SPEC §4.5 перечисляет триггеры hotkey+menu, старта нет; defensable, расхождение. Уточнить в SPEC v1.1 на этапе 5.
 - статус: open
 - источник: reviewer stage 2
 
-### S2-6: src/tray.cpp:160 — возвращаемое значение NIM_SETVERSION не проверено
-- файл: src/tray.cpp:160
-- суть: warn при неудаче.
-- статус: open
-- источник: reviewer stage 2
+## Stage 3 — review (signature, chain, tick, scanner_session, win_reader)
 
-### S2-7: src/tray.h:6-11 — комментарий про FindWindowW для hidden-окна
-- файл: src/tray.h:6-11
-- суть: FindWindowW пропускает не-WS_VISIBLE окна (вернул 0); документировать EnumWindows+GetClassNameW как путь поиска; поведение само корректно.
+### S3-1: src/chain.cpp:345-351 — vital span `hi` не учитывает ReservedFlat
+- файл: src/chain.cpp:345-351
+- суть: `hi = max(b + max(TotalOff, CurrentOff, ReservedOff) + 4)`; при offsets.json с `ReservedFlat > CurrentOff/ReservedOff/TotalOff` — индекс за границей span-вектора (latent: rev34 безопасна, 24 < 56). Подтверждено scratch-запуском с ReservedFlat=200: tick ok с OOB. Fix: включить ReservedFlat в max.
 - статус: open
-- источник: reviewer stage 2 (re-review)
+- источник: reviewer stage 3 — чинить первым из списка
+
+### S3-2: src/scanner.cpp:15-18 — event handle `wake_` не закрывается
+- файл: src/scanner.cpp:15-18
+- суть: нет CloseHandle(wake_) после join; поглощается выходом процесса. Fix: CloseHandle в ~Scanner() после stop().
+- статус: open
+- источник: reviewer stage 3
+
+### S3-3: src/scanner.h:51 — мёртвый член `joined_`
+- файл: src/scanner.h:51
+- суть: delete или использовать явной bookkeeping-отметкой join.
+- статус: open
+- источник: reviewer stage 3
+
+### S3-4: src/chain.cpp:121-127 — find_life_index строже poe_scan.py на границе региона
+- файл: src/chain.cpp:121-127
+- суть: py read_cstring читает 16-байтовые чанки за коротким чтением и принимает "Life" на границе без явного NUL; C++ требует got≥5+NUL. Impact пренебрежим, строгость defensable; паритет — эмулировать read_cstring.
+- статус: open
+- источник: reviewer stage 3
+
+### S3-5: src/scanner_session.cpp:34 — half-up округление debug-строки vs banker's в py
+- файл: src/scanner_session.cpp:34
+- суть: `(100*current + unres/2)/unres` half-up; py round() banker's; debug-дисплей на .5 печатает на 1 выше; решения не зависит. Косметика, выравнивание через nearbyint или оставить с заметкой.
+- статус: open
+- источник: reviewer stage 3
+
+### S3-6: src/chain.cpp:160-182 — full_chain step C строже poe_scan.py
+- файл: src/chain.cpp:160-182
+- суть: проверяет `(cs_last − cs_first) % 16` и non-null current-state — py не валидирует; строгость безвредна; расширить комментарий о намеренной строгости.
+- статус: open
+- источник: reviewer stage 3
+
+### S3-7: src/scanner_session.cpp:167-176 + src/scanner.cpp:23-36 — нет detach-лога при shutdown, когда attached
+- файл: src/scanner_session.cpp:167-176; src/scanner.cpp:23-36
+- суть: stop-флаг минует step(), поток выходит без `detached`; join+flush верифицированы. Fix: в Scanner::stop() сбрасывать enabled до stop+wake, чтобы финальный step залогировал detach.
+- статус: open
+- источник: reviewer stage 3

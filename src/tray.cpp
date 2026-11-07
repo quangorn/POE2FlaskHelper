@@ -38,7 +38,15 @@ Tray::Tray(TrayHost& host) : host_(host) {
 
 Tray::~Tray() {
     if (icon_added_) remove_icon();
-    if (hwnd_) DestroyWindow(hwnd_);  // NIM_DELETE already ran; window teardown
+    if (hwnd_) {
+        KillTimer(hwnd_, kStatusTimerId);  // status timer must not outlive the window
+        DestroyWindow(hwnd_);              // NIM_DELETE already ran; window teardown
+    }
+    if (class_registered_) {
+        // Balanced against RegisterClassW in create() (MINOR_ISSUES S2-4).
+        UnregisterClassW(kTrayWindowClass, host_.hInst);
+        class_registered_ = false;
+    }
     hwnd_ = nullptr;
 }
 
@@ -49,9 +57,13 @@ bool Tray::create() {
     wc.hIcon = LoadIconW(host_.hInst, MAKEINTRESOURCEW(IDI_APP_ICON));
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.lpszClassName = kTrayWindowClass;
-    if (!RegisterClassW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        host_.logger.log(LogLevel::Error, "cannot register the tray window class");
-        return false;
+    if (!RegisterClassW(&wc)) {
+        if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            host_.logger.log(LogLevel::Error, "cannot register the tray window class");
+            return false;
+        }
+    } else {
+        class_registered_ = true;   // ~Tray pairs this with UnregisterClassW
     }
     // No WS_VISIBLE: a hidden top-level window, FindWindowW still finds it.
     hwnd_ = CreateWindowExW(0, kTrayWindowClass, L"POE2FlaskHelper", 0, 0, 0, 0, 0,
@@ -83,14 +95,22 @@ LRESULT Tray::handle(UINT msg, WPARAM wp, LPARAM lp) {
             // WM_CONTEXTMENU - the v4-recommended right-click signal. Firing on
             // WM_RBUTTONUP as well popped the menu twice per one right-click.
             const bool menu = (ev == WM_CONTEXTMENU);
-            host_.logger.log(LogLevel::Info, "tray callback event " + std::to_string(ev)
-                             + " menu=" + std::to_string(menu));
+            // Hover/left/double-click/no-op are debug: a hover burst is ~50 events and
+            // must not spam the info log (SPEC §7, MINOR_ISSUES S2-2).
+            host_.logger.log(LogLevel::Debug, "tray callback event " + std::to_string(ev));
             if (menu) {
+                // Actionable: only this event is an info line (SPEC §7 info list).
+                host_.logger.log(LogLevel::Info, "tray callback: right-click menu request");
                 show_menu();  // SPEC §4.3: one state-dependent toggle row + Exit
             }
             // Double click on the icon does nothing (SPEC §4.3); left click too.
             return 0;
         }
+        case WM_TIMER:
+            if (wp == static_cast<WPARAM>(kStatusTimerId)) {
+                if (host_.on_timer) host_.on_timer();  // scanner status -> tooltip merge
+            }
+            return 0;
         case WM_COMMAND: {
             TrayCmd c = tray_cmd_from_id(LOWORD(wp));  // routing is pure core state.cpp
             if (c == TrayCmd::Exit) {
@@ -164,7 +184,12 @@ bool Tray::add_icon() {
     v.hWnd = hwnd_;
     v.uID = nid_.uID;
     v.uVersion = NOTIFYICON_VERSION_4;
-    Shell_NotifyIconW(NIM_SETVERSION, &v);
+    if (!Shell_NotifyIconW(NIM_SETVERSION, &v)) {
+        // MINOR_ISSUES S2-6: the icon works without v4 (short tooltip, classic event
+        // layout), so this is a warning, not a failure.
+        host_.logger.log(LogLevel::Warn, "Shell_NotifyIcon NIM_SETVERSION(v4) failed - "
+                                         "classic event layout and 63-char tooltip used");
+    }
     icon_added_ = true;
     host_.logger.log(LogLevel::Info, "tray icon added, tooltip: " + tooltip_text(host_.status));
     return true;

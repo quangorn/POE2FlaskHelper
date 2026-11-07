@@ -6,7 +6,7 @@
 #include <string>
 
 #include "res_ids.h"
-#include "scanner.h"
+#include "scanner_ctl.h"
 #include "state.h"
 
 using poe2::AppStatus;
@@ -123,20 +123,22 @@ TEST(scanner_toggle_state_transitions) {
     CHECK_EQ(wav, static_cast<uint16_t>(ID_ENABLE_WAV));
 }
 
-TEST(scanner_stub_start_stop_contract) {
-    // The stage 2 stub is what main.cpp wires; stage 3 replaces it with the thread.
-    poe2::ScannerStub stub;
-    CHECK(!stub.running());
-    CHECK_EQ(stub.starts(), 0);
-    stub.start();
-    CHECK(stub.running());
-    CHECK_EQ(stub.starts(), 1);
-    CHECK_EQ(stub.stops(), 0);
-    stub.stop();
-    CHECK(!stub.running());
-    CHECK_EQ(stub.stops(), 1);
-    stub.stop();  // idempotent: the shutdown path calls stop() unconditionally
-    CHECK(!stub.running());
-    CHECK_EQ(stub.starts(), 1);
-    CHECK_EQ(stub.stops(), 2);
+TEST(scanner_ctl_atomic_snapshot) {
+    // The control block main.cpp and the scanner thread share (SPEC §4.2): plain
+    // atomics; UI writes enable/stop, the thread writes phase/pid.
+    poe2::ScannerCtl ctl;
+    CHECK(!ctl.enabled.load());
+    CHECK(!ctl.stop.load());
+    CHECK_EQ(ctl.phase.load(), static_cast<int>(Phase::ScannerOff));
+    CHECK_EQ(ctl.pid.load(), 0u);
+
+    ctl.enabled.store(true);
+    ctl.phase.store(static_cast<int>(Phase::Attached));
+    ctl.pid.store(4242);
+    CHECK(ctl.enabled.load());
+    CHECK(static_cast<Phase>(ctl.phase.load()) == Phase::Attached);
+    CHECK_EQ(ctl.pid.load(), 4242u);
+
+    ctl.stop.store(true);   // shutdown request: the thread must leave its loop
+    CHECK(ctl.stop.load());
 }

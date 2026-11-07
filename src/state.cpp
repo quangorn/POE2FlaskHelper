@@ -52,9 +52,18 @@ uint16_t set_scanner_enabled(AppStatus& st, bool enabled) {
     st.scanner_enabled = enabled;
     st.pid = 0;  // the attached PID arrives with the scanner thread (stage 3)
     // SPEC §4.6: enabling starts the "waiting for process" phase; disabling drops
-    // back to off. No ReadProcessMemory happens in stage 2 (the stub reads nothing).
+    // back to off. The scanner thread then drives the real phase.
     st.phase = enabled ? Phase::WaitingForGame : Phase::ScannerOff;
     return wav_res_id(enabled);
+}
+
+bool apply_scanner_snapshot(AppStatus& st, Phase p, uint32_t pid) {
+    const Phase want = st.scanner_enabled ? p : Phase::ScannerOff;
+    const uint32_t want_pid = (want == Phase::Attached) ? pid : 0;
+    if (st.phase == want && st.pid == want_pid) return false;
+    st.phase = want;
+    st.pid = want_pid;
+    return true;
 }
 
 }  // namespace poe2

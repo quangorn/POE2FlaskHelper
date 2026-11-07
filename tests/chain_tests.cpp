@@ -1,0 +1,263 @@
+// Chain A-J + tick tests (plan.md stage 3): happy path (Life + index) and EVERY
+// failure branch - GameState=0, short read, LocalPlayers shifted +-8 (window +-0x40),
+// IsValid != 0xC, empty comp-vector, no "Life" in CLU, capacity > 50, life_index out
+// of range; tick values, caches, rescan on invalid cache, short reads, closed process.
+#include "test.h"
+
+#include <cstdio>
+#include <cstring>
+#include <string>
+
+#include "chain.h"
+#include "synthetic_layout.h"
+#include "fakes/FakeMemory.h"
+
+using poe2::ChainCache;
+using poe2::ChainStep;
+using poe2::FullChainResult;
+using poe2::TickResult;
+using poe2::testing::FakeMemory;
+using poe2::testing::Synth;
+using poe2::testing::rev34;
+
+namespace {
+
+// A ready FakeMemory with the full synthetic layout.
+FakeMemory make_ready() {
+    FakeMemory m;
+    build_synthetic(m, rev34());
+    return m;
+}
+
+}  // namespace
+
+TEST(chain_happy_path) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::Signature);   // no failure recorded
+    CHECK_EQ(c.global_addr, Synth::kGlobal);
+    CHECK_EQ(c.off_lp, rev34().LocalPlayers);      // exact offset hits first
+    CHECK_EQ(c.life_index, 0);                     // "Life" is bucket record 0
+}
+
+TEST(chain_gamestate_zero) {
+    FakeMemory m = make_ready();
+    m.put_u64(Synth::kGlobal, 0);   // GameStates* = 0 (menu / not logged in)
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::GameState);
+    CHECK(!c.valid());   // a failed attach leaves no cache
+}
+
+TEST(chain_short_read_current_state_ptr) {
+    FakeMemory m = make_ready();
+    m.reset_reads();
+    // full_chain reads: 9 signature chunks (1 MB with a 15-byte overlap over the
+    // 8 MB image), then the GameState pointer (10th), then CurrentStatePtr (11th).
+    // Killing the 11th read gives the CurrentStatePtr branch.
+    m.fail_on_read(11);
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::CurrentStatePtr);
+}
+
+TEST(chain_local_players_shifted_plus8) {
+    FakeMemory m = make_ready();
+    // The patch moves the field +8: the exact offset is no longer a vector.
+    const int64_t off = rev34().LocalPlayers;
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off), 0);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) + 8, Synth::kPlayersArr);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) + 16, Synth::kPlayersArr + 8);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) + 24, Synth::kPlayersArr + 8);
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(r.ok);
+    CHECK_EQ(c.off_lp, off + 8);   // the window probe found the shifted field
+}
+
+TEST(chain_local_players_shifted_minus8) {
+    FakeMemory m = make_ready();
+    const int64_t off = rev34().LocalPlayers;
+    // The patch moves the field -8: the triple now lives at AreaInstance+off-8
+    // (First@-8, Last@0, End@+8), so the exact offset reads a dead pointer.
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off), 0);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) - 8, Synth::kPlayersArr);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off), Synth::kPlayersArr + 8);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) + 8, Synth::kPlayersArr + 8);
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(r.ok);
+    CHECK_EQ(c.off_lp, off - 8);   // the lower offset wins (sorted by |delta|)
+}
+
+TEST(chain_local_players_out_of_window) {
+    // +-0x40 window exhausted: no valid vector anywhere.
+    FakeMemory m = make_ready();
+    const int64_t off = rev34().LocalPlayers;
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off), 0);
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::LocalPlayers);
+}
+
+TEST(chain_entity_invalid) {
+    FakeMemory m = make_ready();
+    m.put_u8(Synth::kEntity + static_cast<uint64_t>(rev34().EntityIsValid), 0xB);
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::EntityValid);
+}
+
+TEST(chain_empty_comp_vector) {
+    FakeMemory m = make_ready();
+    m.put_u64(Synth::kEntity + 0x18, Synth::kCompArr);   // Last == First: empty vector
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::CompVector);
+}
+
+TEST(chain_no_life_in_clu) {
+    FakeMemory m = make_ready();
+    // Both bucket records resolve to "Position": no "Life" name anywhere.
+    m.put_u64(Synth::kBucketArr, Synth::kStrPos);   // record 0 -> "Position"
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::LifeIndex);
+    CHECK(r.fail.detail.find("Life") != std::string::npos);
+}
+
+TEST(chain_capacity_over_50) {
+    FakeMemory m = make_ready();
+    m.put_u32(Synth::kLookup + static_cast<uint64_t>(rev34().CLU_Bucket) + 32, 51);
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::Capacity);
+}
+
+TEST(chain_life_index_out_of_comp_range) {
+    FakeMemory m = make_ready();
+    // "Life" is in the bucket at index 10, the comp vector has only 4 entries.
+    m.put_u32(Synth::kBucketArr + 8, 10);
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::LifeIndex);
+    CHECK(r.fail.detail.find("out of") != std::string::npos);
+}
+
+TEST(tick_all_five_vitals) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    const auto t = poe2::tick(m, rev34(), c);
+    REQUIRE(t.ok);
+    CHECK_EQ(t.vals[poe2::kHealth].total, Synth::hp_total);
+    CHECK_EQ(t.vals[poe2::kHealth].current, Synth::hp_current);
+    CHECK_EQ(t.vals[poe2::kHealth].flat, Synth::hp_flat);
+    CHECK_EQ(t.vals[poe2::kHealth].pct, Synth::hp_pct);
+    CHECK_EQ(t.vals[poe2::kMana].total, Synth::mp_total);
+    CHECK_EQ(t.vals[poe2::kMana].current, Synth::mp_current);
+    CHECK_EQ(t.vals[poe2::kMana].flat, Synth::mp_flat);
+    CHECK_EQ(t.vals[poe2::kMana].pct, Synth::mp_pct);
+    CHECK_EQ(t.vals[poe2::kEnergyShield].total, Synth::es_total);
+    CHECK_EQ(t.vals[poe2::kEnergyShield].current, Synth::es_current);
+    CHECK_EQ(t.vals[poe2::kWard].total, Synth::ward_total);
+    CHECK_EQ(t.vals[poe2::kWard].current, Synth::ward_current);
+    CHECK_EQ(t.vals[poe2::kWard].flat, Synth::ward_flat);
+    CHECK_EQ(t.vals[poe2::kWard].pct, Synth::ward_pct);
+    CHECK_EQ(t.vals[poe2::kRage].total, Synth::rage_total);
+    CHECK_EQ(t.vals[poe2::kRage].current, Synth::rage_current);
+    CHECK_EQ(t.vals[poe2::kRage].flat, Synth::rage_flat);
+    CHECK_EQ(t.vals[poe2::kRage].pct, Synth::rage_pct);
+}
+
+TEST(tick_read_budget_and_cache_reuse) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    m.reset_reads();
+    const auto t = poe2::tick(m, rev34(), c);
+    REQUIRE(t.ok);
+    // ~10 reads per tick (SPEC §4.6): 10 dynamic reads + one vital block read.
+    CHECK(t.vals[poe2::kHealth].current == Synth::hp_current);
+    CHECK_EQ(m.reads(), 11);
+    // The cached LocalPlayers offset is used: the exact-offset field is destroyed,
+    // a valid vector is written at +8, and the tick must succeed with no probe reads.
+    const int64_t off = rev34().LocalPlayers;
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off), 0);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) + 8, Synth::kPlayersArr);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) + 16, Synth::kPlayersArr + 8);
+    m.put_u64(Synth::kArea + static_cast<uint64_t>(off) + 24, Synth::kPlayersArr + 8);
+    c.off_lp = off + 8;   // cached shift
+    m.reset_reads();
+    const auto t2 = poe2::tick(m, rev34(), c);
+    CHECK(t2.ok);
+    CHECK_EQ(m.reads(), 11);   // cache reuse: no window probe happened
+    CHECK_EQ(c.off_lp, off + 8);
+}
+
+TEST(tick_rescan_life_index_on_invalid_cache) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    c.life_index = -1;   // cache invalidated
+    m.reset_reads();
+    const auto t = poe2::tick(m, rev34(), c);
+    REQUIRE(t.ok);
+    CHECK_EQ(c.life_index, 0);            // the rescan restored it
+    // The extra reads are exactly the bucket records: record + name per entry.
+    CHECK_EQ(m.reads(), 11 + 2);
+    // A cached index beyond the bucket size also forces a rescan.
+    c.life_index = 7;
+    m.reset_reads();
+    CHECK(poe2::tick(m, rev34(), c).ok);
+    CHECK_EQ(c.life_index, 0);
+}
+
+TEST(tick_short_read_vital_block) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    m.reset_reads();
+    m.fail_on_read(11);   // the 11th read is the vital block
+    const auto t = poe2::tick(m, rev34(), c);
+    CHECK(!t.ok);
+    CHECK_EQ(t.fail.step, ChainStep::VitalRead);
+}
+
+TEST(tick_process_closed) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    m.fail_all_reads(true);   // every read fails: the process handle is dead
+    const auto t = poe2::tick(m, rev34(), c);
+    CHECK(!t.ok);
+    CHECK_EQ(t.fail.step, ChainStep::GameState);   // first read is the global pointer
+}
+
+TEST(tick_without_cache_is_signature_failure) {
+    FakeMemory m = make_ready();
+    ChainCache c;   // empty cache
+    const auto t = poe2::tick(m, rev34(), c);
+    CHECK(!t.ok);
+    CHECK_EQ(t.fail.step, ChainStep::Signature);
+}
+
+TEST(tick_area_instance_zero) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    m.put_u64(Synth::kIngame + static_cast<uint64_t>(rev34().AreaInstanceData), 0);
+    const auto t = poe2::tick(m, rev34(), c);
+    CHECK(!t.ok);
+    CHECK_EQ(t.fail.step, ChainStep::AreaInstance);
+}

@@ -63,4 +63,10 @@ uint16_t wav_res_id(bool enabled);
 // phase/pid and returns the WAV resource id to play (SPEC §4.5). Pure.
 uint16_t set_scanner_enabled(AppStatus& st, bool enabled);
 
+// Merge the scanner thread's atomic snapshot (scanner_ctl.h) into AppStatus: the main
+// thread only reads the snapshot, never memory (SPEC §4.2). A disabled scanner is
+// always ScannerOff. Returns true when the displayed state changed, so main.cpp can
+// refresh the tooltip exactly on changes (no per-tick tray updates).
+bool apply_scanner_snapshot(AppStatus& st, Phase p, uint32_t pid);
+
 }  // namespace poe2
