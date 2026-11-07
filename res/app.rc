@@ -1,0 +1,43 @@
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#include "version.h"
+#include "res_paths.rc"
+
+#define IDI_APP_ICON  101
+#define ID_ENABLE_WAV 102
+#define ID_DISABLE_WAV 103
+
+IDI_APP_ICON  ICON      ICON_PATH
+ID_ENABLE_WAV WAVE      ENABLE_WAV_PATH
+ID_DISABLE_WAV WAVE     DISABLE_WAV_PATH
+1             24        MANIFEST_PATH   // RT_MANIFEST, per-monitor DPI v2
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,0
+ PRODUCTVERSION APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40001L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "POE2FlaskHelper"
+            VALUE "FileDescription", "POE2 Flask Helper"
+            VALUE "FileVersion", APP_VERSION_FULL
+            VALUE "InternalName", "POE2FlaskHelper.exe"
+            VALUE "LegalCopyright", "Freeware"
+            VALUE "OriginalFilename", "POE2FlaskHelper.exe"
+            VALUE "ProductName", "POE2FlaskHelper"
+            VALUE "ProductVersion", APP_VERSION_FULL
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

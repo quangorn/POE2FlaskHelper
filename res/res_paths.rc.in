@@ -1,0 +1,4 @@
+#define ICON_PATH "@CMAKE_CURRENT_SOURCE_DIR@/res/app.ico"
+#define ENABLE_WAV_PATH "@CMAKE_CURRENT_SOURCE_DIR@/res/enable.wav"
+#define DISABLE_WAV_PATH "@CMAKE_CURRENT_SOURCE_DIR@/res/disable.wav"
+#define MANIFEST_PATH "@CMAKE_CURRENT_SOURCE_DIR@/res/app.manifest"
