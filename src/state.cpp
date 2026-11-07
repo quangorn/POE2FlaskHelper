@@ -14,6 +14,7 @@ std::string phase_label(const AppStatus& st) {
         case Phase::ScannerOff:     return "Scanner off";
         case Phase::WaitingForGame: return "Waiting for game";
         case Phase::Attached:       return "Attached (PID " + std::to_string(st.pid) + ")";
+        case Phase::AdminRequired:  return "Admin rights required";  // SPEC §8
     }
     return "Scanner off";  // unreachable, keeps /W4 happy
 }

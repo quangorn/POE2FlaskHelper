@@ -25,9 +25,13 @@ private:
 };
 
 // OpenProcess(VM_READ | QUERY_INFORMATION) + PEB reads. nullptr when the process
-// cannot be opened (access denied, exiting process, no PEB).
+// cannot be opened (access denied, exiting process, no PEB). err_out (optional)
+// receives the failure code: GetLastError() of the failed OpenProcess - with the game
+// elevated this is ERROR_ACCESS_DENIED (SPEC §8) - or kOpenReaderFail after the PEB /
+// PE-header reads fail; 0 on success. The code is what lets ScannerSession tell an
+// admin-rights failure from a generic one without windows.h.
 struct WinMemoryReaderFactory : IMemoryReaderFactory {
-    std::unique_ptr<IMemoryReader> open(uint32_t pid) override;
+    std::unique_ptr<IMemoryReader> open(uint32_t pid, uint32_t* err_out) override;
 };
 
 }  // namespace poe2

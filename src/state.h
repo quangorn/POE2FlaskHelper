@@ -23,7 +23,11 @@ constexpr uint32_t kCmdToggle = 1001, kCmdExit = 1002;
 
 // Phases reachable before the scanner thread exists (SPEC §4.6 items 1-3). Stage 2
 // wires enable/disable to state only; the reading phase arrives in stage 3.
-enum class Phase { ScannerOff, WaitingForGame, Attached };
+// AdminRequired (SPEC §8, stage 5): OpenProcess answered ERROR_ACCESS_DENIED - the
+// game is elevated and the helper is not. It is a phase (not a separate AppStatus
+// flag) so it travels to the UI through the same ScannerCtl snapshot as the others,
+// and the next successful attach replaces it (recovery is automatic).
+enum class Phase { ScannerOff, WaitingForGame, Attached, AdminRequired };
 
 // Commands the app reacts to: the menu toggle item, the hotkey, Exit.
 enum class TrayCmd { None, Toggle, Exit };
@@ -36,7 +40,8 @@ struct AppStatus {
     std::string hotkey_text;   // registered hotkey string, e.g. "Ctrl+9"
 };
 
-// SPEC §4.3 tooltip strings: "Scanner off" / "Waiting for game" / "Attached (PID n)".
+// SPEC §4.3 tooltip strings: "Scanner off" / "Waiting for game" / "Attached (PID n)"
+// (SPEC §8 adds the "Admin rights required" status for a denied OpenProcess).
 std::string phase_label(const AppStatus& st);
 // Tooltip text for Shell_NotifyIcon, clamped to the szTip limit (64 wchar).
 // hotkey_busy appends the busy status (SPEC §4.4).

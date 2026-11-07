@@ -104,6 +104,100 @@ TEST(scanner_open_process_failure_is_a_warning_and_waits) {
     CHECK_EQ(f.count("OpenProcess failed"), 2);
 }
 
+TEST(open_access_denied_is_error_and_admin_status) {
+    // SPEC §8: OpenProcess -> ERROR_ACCESS_DENIED => error in the log + the
+    // "Admin rights required" tooltip. The fixture runs at the info level: warn/error
+    // lines must survive it (SPEC §7), the debug chain lines must not.
+    Fix f("admin_denied", poe2::config_defaults().scanner,
+          poe2::config_defaults(), LogLevel::Info);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(777);
+    f.factory.open_ok = false;
+    f.factory.open_err = poe2::kWinAccessDenied;   // injected ERROR_ACCESS_DENIED
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::AdminRequired);
+    CHECK(f.log_text().find("[error] OpenProcess denied for PID 777 - "
+                            "admin rights required") != std::string::npos);
+    CHECK_EQ(f.count("[warn]"), 0);   // the deny is not downgraded to a warning
+    // SPEC §7: at the info level debug lines are dropped, warn/error always written.
+    CHECK_EQ(f.count("[debug]"), 0);
+    // The UI sees it as the exact tooltip (SPEC §4.3/§8), merged like main.cpp does.
+    AppStatus st;
+    st.scanner_enabled = true;
+    CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Admin rights required"));
+
+    // Polling continues with the admin status, and the error line is rate-limited to
+    // one per 5 s (SPEC §7 discipline for a repeating failure).
+    f.session.step();
+    f.session.step();
+    CHECK_EQ(f.count("OpenProcess denied"), 1);
+    CHECK(phase_of(f.ctl) == Phase::AdminRequired);
+    f.clock.advance(5000);
+    f.session.step();
+    CHECK_EQ(f.count("OpenProcess denied"), 2);
+
+    // SPEC §8 recovery: the next successful open replaces the admin status, the
+    // tooltip returns to the normal states and no stale status sticks.
+    f.factory.open_ok = true;
+    f.factory.open_err = 0;
+    f.session.step();                            // attach: OpenProcess + chain
+    CHECK(phase_of(f.ctl) == Phase::Attached);
+    CHECK_EQ(f.ctl.pid.load(), 777u);
+    CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 777)"));
+    CHECK(f.log_text().find("attached PID 777") != std::string::npos);
+    CHECK_EQ(f.count("OpenProcess denied"), 2);  // the recovery adds no admin line
+}
+
+TEST(other_open_failures_keep_the_waiting_status) {
+    // A non-ACCESS_DENIED open failure (PEB/PE read: kOpenReaderFail) keeps the SPEC §7
+    // warning + "Waiting for game" tooltip - the admin tooltip is only for code 5.
+    Fix f("open_other_fail", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(1001);
+    f.factory.open_ok = false;
+    f.factory.open_err = poe2::kOpenReaderFail;
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::WaitingForGame);
+    CHECK(f.log_text().find("[warn] OpenProcess failed for PID 1001") != std::string::npos);
+    CHECK_EQ(f.count("[error]"), 0);
+    AppStatus st;
+    st.scanner_enabled = true;
+    CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+}
+
+TEST(admin_status_clears_when_the_game_disappears) {
+    // SPEC §8: the admin status is a state, not a latch. If the elevated game process
+    // goes away, the next poll reports the normal "waiting" status again.
+    Fix f("admin_gone", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(777);
+    f.factory.open_ok = false;
+    f.factory.open_err = poe2::kWinAccessDenied;
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::AdminRequired);
+
+    f.proc.kill();                 // the game closes
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::WaitingForGame);
+    AppStatus st;
+    st.scanner_enabled = true;
+    CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+
+    // And a game that becomes openable later attaches normally.
+    f.proc.spawn(888);
+    f.factory.open_ok = true;
+    f.factory.open_err = 0;
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::Attached);
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+    CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 888)"));
+}
+
 TEST(scanner_chain_loss_goes_back_to_waiting_and_reuses_cache) {
     Fix f("chain_loss", poe2::config_defaults().scanner);
     f.ctl.enabled.store(true);

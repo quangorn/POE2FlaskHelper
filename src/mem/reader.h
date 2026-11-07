@@ -22,11 +22,29 @@ struct IMemoryReader {
     virtual uint32_t image_size() const = 0;
 };
 
+// Failure codes of open() (SPEC §8). The Win32 codes OpenProcess can return are plain
+// uint32 values here so poe2_core and the tests stay Win32-free:
+//   kWinAccessDenied - ERROR_ACCESS_DENIED: the game runs elevated, the helper does
+//                      not. SPEC §8: error in the log + the "Admin rights required"
+//                      tooltip.
+//   kOpenReaderFail  - OpenProcess succeeded, the PEB / PE-header reads failed. This
+//                      is a sentinel outside the Win32 system-error range (which ends
+//                      near 16000), so it can never be read as a Win32 code.
+constexpr uint32_t kWinAccessDenied = 5;  // ERROR_ACCESS_DENIED
+constexpr uint32_t kOpenReaderFail = 100000;
+
 struct IMemoryReaderFactory {
     virtual ~IMemoryReaderFactory() = default;
     // OpenProcess(VM_READ|QUERY_INFORMATION) + PEB reads. nullptr when the process
-    // cannot be opened (access denied, process exiting).
-    virtual std::unique_ptr<IMemoryReader> open(uint32_t pid) = 0;
+    // cannot be opened (access denied, process exiting). err_out (optional, may be
+    // nullptr) receives the failure code for SPEC §8:
+    //   0                  - success
+    //   a Win32 error code - OpenProcess itself failed (the game is elevated and the
+    //                        helper is not => kWinAccessDenied); win_reader passes
+    //                        GetLastError() straight through
+    //   kOpenReaderFail    - OpenProcess worked, the PEB/PE-header reads did not
+    // The codes are plain uint32 so poe2_core and the tests stay Win32-free.
+    virtual std::unique_ptr<IMemoryReader> open(uint32_t pid, uint32_t* err_out) = 0;
 };
 
 // Little-endian scalar reads on the interface (core code only). nullopt on a short

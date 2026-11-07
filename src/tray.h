@@ -8,13 +8,25 @@
 //   EnumWindows + GetClassNameW (compare against kTrayWindowClass).
 // That is the documented discovery path for this window.
 //
-// Programmatic exit for a reviewer / smoke test (documented, reproducible):
+// Programmatic hooks for a reviewer / smoke test (documented, reproducible):
 //   HWND hwnd = FindWindowW(L"POE2FlaskHelperTrayWindow", nullptr);  // visible case
 //   // hidden window: EnumWindows + GetClassNameW == kTrayWindowClass
-//   PostMessageW(hwnd, WM_COMMAND, poe2::kCmdExit /* 1002 */, 0);  // == clicking Exit
-//   // equivalent: PostMessageW(hwnd, WM_CLOSE, 0, 0) -> DestroyWindow -> WM_DESTROY
-// Both paths end the message loop (PostQuitMessage) and run the clean shutdown in
-// main.cpp: scanner thread stop+join, sound off, UnregisterHotKey, NIM_DELETE, log flush.
+//   PostMessageW(hwnd, WM_COMMAND, poe2::kCmdToggle /* 1001 */, 0);  // == the switch
+//   PostMessageW(hwnd, WM_COMMAND, poe2::kCmdExit /* 1002 */, 0);    // == Exit
+//   PostMessageW(hwnd, WM_CLOSE, 0, 0)  -> DestroyWindow -> WM_DESTROY -> exit
+// Both hooks work cross-process. Measured 2026-11-08 (stage 5 acceptance): PostMessageW
+// and SendMessageW of WM_COMMAND reach the WndProc from a separate process - kCmdToggle
+// flipped the scanner ("scanner enabled" + tooltip written), kCmdExit exited with code 0
+// and WM_CLOSE exited with code 0, each through the clean shutdown in main.cpp: scanner
+// thread stop+join, sound off, UnregisterHotKey, NIM_DELETE, log flush.
+//
+// A right-click on the icon cannot be simulated as a reviewer hook. The tray callback
+// message is WM_APP + 1 (a private message): Windows UIPI filters private messages sent
+// from a lower integrity level to a higher one, so when the helper runs elevated (the
+// game-as-admin case of SPEC §2.3) an external tool cannot post the callback and
+// show_menu() is reachable only through the real shell callback. Measured 2026-11-08:
+// between two processes of the same integrity the message IS delivered, so the hook
+// depends on the integrity of both sides - never rely on it for a smoke test.
 //
 // The menu item ids are pure core constants (src/state.cpp): kCmdToggle = 1001 flips
 // the scanner exactly like the hotkey, kCmdExit = 1002 exits.

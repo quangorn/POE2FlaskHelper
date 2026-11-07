@@ -40,10 +40,12 @@ std::string values_line(const TickResult& t) {
     return s;
 }
 
+// SPEC §4.6: the admin-denied OpenProcess is a state the poll leaves automatically.
 std::string phase_name(Phase p) {
     switch (p) {
         case Phase::ScannerOff: return "off";
         case Phase::WaitingForGame: return "waiting";
+        case Phase::AdminRequired: return "admin-required";
         default: return "attached";
     }
 }
@@ -67,6 +69,7 @@ ScannerSession::ScannerSession(Deps deps, ScannerCtl& ctl)
     last_loss_ms_ = INT64_MIN;
     last_mismatch_ms_ = INT64_MIN;
     last_open_ms_ = INT64_MIN;
+    last_admin_ms_ = INT64_MIN;
     ctl_.phase.store(static_cast<int>(Phase::ScannerOff));
     ctl_.pid.store(0);
 }
@@ -101,13 +104,27 @@ void ScannerSession::attach_step() {
     const uint32_t pid = found[0].pid;
 
     if (!reader_) {
-        reader_ = deps_.factory.open(pid);
+        uint32_t err = 0;
+        reader_ = deps_.factory.open(pid, &err);
         if (!reader_) {
-            // SPEC §8: OpenProcess failure is a warning; the poll continues.
+            if (err == kWinAccessDenied) {
+                // SPEC §8: OpenProcess -> ERROR_ACCESS_DENIED is an ERROR line and the
+                // "Admin rights required" tooltip. The game is elevated, the helper is
+                // not. The poll continues; a successful open later clears the status.
+                if (log_throttle(deps_.clock.now_ms(), kLogWindowMs, last_admin_ms_)) {
+                    deps_.log.log(LogLevel::Error, "OpenProcess denied for PID " +
+                                                   std::to_string(pid) +
+                                                   " - admin rights required");
+                }
+                publish(Phase::AdminRequired, 0);
+                return;
+            }
+            // SPEC §7: any other OpenProcess failure is a warning; the poll continues.
             if (log_throttle(deps_.clock.now_ms(), kLogWindowMs, last_open_ms_)) {
                 deps_.log.log(LogLevel::Warn, "OpenProcess failed for PID " +
                                               std::to_string(pid) +
-                                              " (admin rights needed?), retrying");
+                                              " (code " + std::to_string(err) +
+                                              "), retrying");
             }
             publish(Phase::WaitingForGame, 0);
             return;

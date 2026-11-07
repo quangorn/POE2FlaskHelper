@@ -58,12 +58,19 @@ struct SharedMemoryShim : IMemoryReader {
 // paired with one shared FakeMemory image.
 struct FakeMemFactory : IMemoryReaderFactory {
     std::shared_ptr<FakeMemory> mem;
-    bool open_ok = true;   // false = OpenProcess fails (access denied simulation)
+    bool open_ok = true;   // false = OpenProcess fails
+    // The failure code reported on a failed open (SPEC §8 fault injection):
+    // 0 = a generic failure, poe2::kWinAccessDenied (5) = the admin-rights case.
+    uint32_t open_err = 0;
     int opens = 0;
 
-    std::unique_ptr<IMemoryReader> open(uint32_t pid) override {
+    std::unique_ptr<IMemoryReader> open(uint32_t pid, uint32_t* err_out) override {
         ++opens;
-        if (!open_ok || !mem) return nullptr;
+        if (!open_ok || !mem) {
+            if (err_out) *err_out = open_err;
+            return nullptr;
+        }
+        if (err_out) *err_out = 0;
         last_pid = pid;
         auto shim = std::make_unique<SharedMemoryShim>();
         shim->mem = mem;

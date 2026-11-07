@@ -58,10 +58,22 @@ size_t WinMemoryReader::read(uint64_t addr, void* buf, size_t n) {
     return static_cast<size_t>(got);
 }
 
-std::unique_ptr<IMemoryReader> WinMemoryReaderFactory::open(uint32_t pid) {
+std::unique_ptr<IMemoryReader> WinMemoryReaderFactory::open(uint32_t pid,
+                                                             uint32_t* err_out) {
     HANDLE h = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, FALSE,
                            static_cast<DWORD>(pid));
-    if (!h) return nullptr;
+    if (!h) {
+        // SPEC §8: an elevated game + a non-elevated helper gives
+        // ERROR_ACCESS_DENIED; GetLastError() is passed to the caller, which maps it
+        // to the "Admin rights required" status.
+        if (err_out) *err_out = static_cast<uint32_t>(GetLastError());
+        return nullptr;
+    }
+    // Post-open steps have no meaningful Win32 error code: report the sentinel.
+    auto reader_fail = [&] {
+        if (err_out) *err_out = kOpenReaderFail;
+        CloseHandle(h);
+    };
 
     auto nt = nt_query();
     BasicInfo info{};
@@ -69,14 +81,14 @@ std::unique_ptr<IMemoryReader> WinMemoryReaderFactory::open(uint32_t pid) {
     const NtStatus st = nt ? nt(h, 0 /* ProcessBasicInformation */, &info,
                                 sizeof info, &got) : -1;
     if (st != 0 || !info.PebBaseAddress) {
-        CloseHandle(h);
+        reader_fail();
         return nullptr;
     }
 
     // PEB.ImageBaseAddress (x64 PEB offset 0x10) = the loaded base of the main module.
     uint64_t base = 0;
     if (!rd(h, info.PebBaseAddress + 0x10, &base, 8) || base == 0) {
-        CloseHandle(h);
+        reader_fail();
         return nullptr;
     }
 
@@ -86,14 +98,15 @@ std::unique_ptr<IMemoryReader> WinMemoryReaderFactory::open(uint32_t pid) {
     // project's own exe, 0x38 is the SizeOfImage field.
     uint32_t pe = 0;
     if (!rd(h, base + 0x3C, &pe, 4) || pe == 0 || pe > 0x10000) {
-        CloseHandle(h);
+        reader_fail();
         return nullptr;
     }
     uint32_t size = 0;
     if (!rd(h, base + pe + 0x18 + 0x38, &size, 4) || size == 0 || size > 0x10000000) {
-        CloseHandle(h);
+        reader_fail();
         return nullptr;
     }
+    if (err_out) *err_out = 0;   // success
     return std::make_unique<WinMemoryReader>(h, base, size);
 }
 

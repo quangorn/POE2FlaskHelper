@@ -92,11 +92,19 @@ cp offsets.json "$STAGE/offsets.json"
 python - "$STAGE" "$VERSION" <<'PYEOF'
 import pathlib, sys, zipfile
 stage, version = sys.argv[1], sys.argv[2]
+# SPEC §2.2 / plan §4 DoD: exactly exe + config.json + offsets.json + README.txt.
+expected = {"POE2FlaskHelper.exe", "config.json", "offsets.json", "README.txt"}
+names = {p.name for p in pathlib.Path(stage).iterdir()}
+if names != expected:
+    print(f"FATAL: dist staging is not the SPEC composition; expected {sorted(expected)}, "
+          f"found {sorted(names)} - zip skipped", file=sys.stderr)
+    sys.exit(1)
 zip_path = f"dist/POE2FlaskHelper-{version}-win64.zip"
 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
     for p in sorted(pathlib.Path(stage).iterdir()):
         zf.write(p, f"POE2FlaskHelper-{version}-win64/{p.name}")
 print(f"created {zip_path}")
 PYEOF
+[ $? -eq 0 ] || exit 1
 
 echo "BUILD OK: dist/POE2FlaskHelper-$VERSION-win64.zip"

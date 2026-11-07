@@ -1,6 +1,9 @@
-# POE2FlaskHelper — спецификация v1.0
+# POE2FlaskHelper — спецификация v1.1
 
-Дата: 2026-11-07. Статус: MVP зафиксирован, реализация не начата.
+Дата: 2026-11-07; правки v1.1 датированы 2026-11-08 (этап 5). Статус: MVP реализован,
+v1.1 отражает реализованное. Правки v1.1: §2.3 (права запуска в README), §3 (дерево
+как реализовано, ассеты финальны), §3.1 («Тестируемость»), §4.5 (звук при
+startup-enable), §9 (критерий 12).
 
 ## 1. Назначение и границы
 
@@ -71,29 +74,68 @@
 
 Один файл, двуязычный: сначала English, затем Russian. Содержание: запуск, статус
 в трее, где лежат `config.json`, `offsets.json` и лог, что делать при
-`Offsets mismatch`, требование VC++ v14 x64 Redistributable.
+`Offsets mismatch`, требование VC++ v14 x64 Redistributable. Изменено 2026-11-08:
+добавлено требование прав запуска — если игра запущена от администратора, хелпер
+запускается с теми же правами (риск §5.1 плана, UIPI).
 
 ## 3. Структура проекта
 
+Изменено 2026-11-08: дерево приведено к реализованному (план §6).
+
 ```
-build.sh  CMakeLists.txt  README.md  SPEC.md  backlog.md
-src/main.cpp        WinMain, single instance, message loop, --version
-src/app.{h,cpp}     состояние приложения, связка модулей
-src/config.{h,cpp}  загрузка, валидация, значения по умолчанию
-src/json.{h,cpp}    минимальный JSON: разбор и сериализация
-src/log.{h,cpp}     потокобезопасный файловый лог, ротация
-src/tray.{h,cpp}    иконка, контекстное меню из двух пунктов
-src/hotkeys.{h,cpp} RegisterHotKey, разбор строк вида "Ctrl+9"
-src/scanner.{h,cpp} рабочий поток: чтение памяти и отправка клавиш
-src/keys.{h,cpp}    SendInput
-src/process.{h,cpp} поиск PID, ImageBase, SizeOfImage, foreground check
-src/sound.{h,cpp}   PlaySound из ресурсов
-res/app.ico res/app.rc res/enable.wav res/disable.wav
+build.sh  CMakeLists.txt  README.md  SPEC.md  plan.md  backlog.md  MINOR_ISSUES.md
+статическая библиотека poe2_core (общая для exe и тестов; чистая логика, интерфейсы §3.1):
+src/json.{h,cpp}       разбор/сериализация
+src/config.{h,cpp}     схема, валидация, значения по умолчанию
+src/offsets.{h,cpp}    обязательный набор ключей, Off − TotalOff
+src/log.{h,cpp}        async-лог: очередь + поток записи, ротация
+src/app.{h,cpp}        пути от каталога exe, helpers текстовых файлов
+src/args.{h,cpp}       разбор командной строки (--version/--batch)
+src/state.{h,cpp}      состояние трея, текст/галочка меню, статус→WAV
+src/keys.{h,cpp}       разбор "Ctrl+9", клавиша Vital'а, интерфейс IKeySender
+src/signature.{h,cpp}  скан сигнатуры по IMemoryReader, чанки 1 МБ
+src/chain.{h,cpp}      цепочка A–J, кэши, tick() на IMemoryReader + Layout
+src/vital_math.{h,cpp} ceil-формула резервов зелий
+src/vitals.{h,cpp}     evaluate(): порог, кулдаун, foreground
+src/scanner_session.{h,cpp} state machine сканера, step()
+src/clock.h            интерфейс IClock
+exe (граница ОС — весь Win32 здесь):
+src/main.cpp           WinMain, single instance, message loop, --version
+src/tray.{h,cpp}       иконка, контекстное меню из двух пунктов, скрытое окно
+src/hotkeys.{h,cpp}    RegisterHotKey
+src/sound.{h,cpp}      PlaySound из ресурсов
+src/scanner.{h,cpp}    рабочий поток-обёртка над ScannerSession (atomic + событие)
+src/game_process.{h,cpp} поиск PID/foreground/liveness; заменяет плановый
+                       process.{h,cpp}: имя collide'ит с UCRT <process.h>
+                       (<thread> включает его), src/ лежит на include-пути
+src/win_keys.cpp       реализация IKeySender на SendInput
+src/mem/             reader.h (IMemoryReader, IMemoryReaderFactory) + win_reader.{h,cpp}
+src/system_clock.h   реализация IClock
+src/res_ids.h        общие id ресурсов (app.rc, C++, тесты)
+res/app.ico res/app.rc res/app.manifest res/enable.wav res/disable.wav
+tests/ мини-фреймворк test.h + test_main.cpp + *_tests.cpp + fakes/ (FakeMemory,
+       FakeClock, FakeProcess, RecordingKeySender) + synthetic_layout.{h,cpp};
+       консольный exe poe2_tests + ctest (unit)
 config.json offsets.json
 ```
 
-Внешние ассеты, которые нужно предоставить: `res/enable.wav`, `res/disable.wav`
-(короткие, < 1 с) и `res/app.ico`. До их появления используются заглушки.
+Ассеты финальны и предоставлены пользователем 2026-11-07: `res/app.ico`
+(записи 16–256 px, прозрачный фон), `res/enable.wav` и `res/disable.wav`
+(0.82 с / 0.689 с, короткие, < 1 с). Заглушки больше не нужны.
+
+### 3.1 Тестируемость (добавлено 2026-11-08)
+
+Правило: **ядро не знает про Win32-процессы и реальное время** — `poe2_core`
+содержит только чистые функции/классы, всё взаимодействие с ОС и временем идёт через
+внедряемые интерфейсы. В exe подставляются реальные реализации, в тестах — фейки;
+сканер тестируется без POE, без Win32 и без sleep (plan §1).
+
+| Интерфейс | Файл | Реализация в exe | Фейк в тестах |
+|---|---|---|---|
+| `IMemoryReader`, `IMemoryReaderFactory` | `src/mem/reader.h` | `src/mem/win_reader.{h,cpp}` (`ReadProcessMemory`) | `FakeMemory` |
+| `IProcessProvider` | `src/game_process.h` | `src/game_process.cpp` (`EnumProcesses`, foreground) | `FakeProcess` |
+| `IClock` | `src/clock.h` | `src/system_clock.h` | `FakeClock` |
+| `IKeySender` | `src/keys.h` | `src/win_keys.cpp` (`SendInput`) | `RecordingKeySender` |
 
 ## 4. Поведение
 
@@ -130,6 +172,9 @@ config.json offsets.json
 - Двойной клик по иконке — без действия.
 - Изменено 2026-11-07: один пункт-переключатель с текстом `Enabled`/`Disabled` по
   состоянию (галочка = включён) вместо двух (`Enable scanner` / `Disable scanner`).
+- Изменено 2026-11-08 (этап 5): к статусам §4.3 добавлен `Admin rights required` —
+  тултип при `OpenProcess` → `ERROR_ACCESS_DENIED` (§8). Статус не залипает: следующий
+  успешный опрос процесса возвращает обычные статусы.
 
 ### 4.4 Хоткей
 
@@ -142,6 +187,8 @@ config.json offsets.json
 
 - Включение сканера — `enable.wav`, выключение — `disable.wav`; срабатывает и на
   хоткей, и на пункт меню.
+- Изменено 2026-11-08: включение при старте (`scanner.enabledOnStart: true`) — это
+  тот же путь переключения, поэтому играет `enable.wav` (решает расхождение S2-5).
 - `PlaySound(MAKEINTRESOURCE(...), hInst, SND_RESOURCE | SND_ASYNC | SND_NODEFAULT)`;
   UI не блокируется.
 - Ошибка ресурса — warning, переключение происходит без звука.
@@ -300,3 +347,6 @@ config.json offsets.json
 9. Игра не в фокусе — клавиши не отправляются.
 10. `config.json`, `offsets.json`, `logs/` — рядом с exe независимо от cwd.
 11. `README.txt` двуязычный (English + Russian) в одном файле.
+12. Изменено 2026-11-08: `ctest` зелёный; сборка пакета при красных тестах
+    невозможна — `build.sh` гоняет `ctest` после strip и останавливается до
+    упаковки, тестовый exe в zip не попадает.

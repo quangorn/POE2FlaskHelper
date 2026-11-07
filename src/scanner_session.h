@@ -74,6 +74,7 @@ private:
     int64_t last_loss_ms_ = -1;       // chain-loss info throttle (SPEC §7, 5 s)
     int64_t last_mismatch_ms_ = -1;   // Offsets mismatch warn throttle
     int64_t last_open_ms_ = -1;       // OpenProcess warn throttle
+    int64_t last_admin_ms_ = -1;      // ERROR_ACCESS_DENIED error throttle (SPEC §8)
     // Stage 4: the per-Vital cooldown timers live in the scanner thread (SPEC §4.2),
     // never in the UI. evaluate() updates them on every sent press.
     VitalSendState vitals_state_;

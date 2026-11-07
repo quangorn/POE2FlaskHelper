@@ -56,12 +56,6 @@
 - статус: open
 - источник: reviewer stage 0
 
-### S0-10: README.txt:4,10-13 — внутреннее противоречие «незапускаемый каркас» vs «--version печатает»
-- файл: README.txt
-- суть: формулировка EN/RU про не запускаемый каркас contradicts строке про --version. Косметика, переформулировать при финальном README (этап 5).
-- статус: open
-- источник: reviewer stage 0
-
 ### S0-11: res/app.rc:1-2 — лишний #include <windows.h>
 - файл: res/app.rc:1-2
 - суть: VERSIONINFO его не требует; убрать.
@@ -91,18 +85,6 @@
 ### S1-1: src/json.cpp:112-124 — одиночная низкая суррогатная пара \udc00 принимается
 - файл: src/json.cpp:112-124
 - суть: \udc00 принимается и эмитит CESU-8 байты ed b0 80; отклонять симметрично одиночной высокой суррогат.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-2: README.txt:12,23 — скрытый флаг --batch в дистовом README
-- файл: README.txt:12,23
-- суть: поведение флага SPEC-совместимо, но SPEC §2.3 не предусматривает его в README; убрать из дистового README на этапе 5.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-3: README.txt:1,15 — «Stage 0 stub / незапускаемый каркас» уже ложь
-- файл: README.txt:1,15
-- суть: exe этапа 1 создаёт конфиг, логи, выходит чисто; переформулировать на этапе 5 (усугубление S0-10).
 - статус: open
 - источник: reviewer stage 1
 
@@ -167,14 +149,6 @@
 - статус: fixed-removed
 - источник: user 2026-11-07
 
-## Stage 2 — review (tray, hotkeys, sound, state)
-
-### S2-5: src/main.cpp:228-232 — startup-enable играет enable.wav
-- файл: src/main.cpp:228-232
-- суть: SPEC §4.5 перечисляет триггеры hotkey+menu, старта нет; defensable, расхождение. Уточнить в SPEC v1.1 на этапе 5.
-- статус: open
-- источник: reviewer stage 2
-
 ## Stage 3 — review (signature, chain, tick, scanner_session, win_reader)
 
 ### S3-2: src/scanner.cpp:15-18 — event handle `wake_` не закрывается
@@ -218,3 +192,67 @@
 - суть: формулировка неполная (keys.h:53 корректна); код верён; косметика.
 - статус: open
 - источник: reviewer stage 4
+
+## Stage 5 — review (README, SPEC v1.1, build.sh gate, .gitattributes)
+
+### S5-1: src/core_placeholder.* + CMakeLists.txt:28 — мёртвая stage-0 заглушка в shipped poe2_core
+- файл: src/core_placeholder.cpp:3-9, src/core_placeholder.h, CMakeLists.txt:28, tests/test_main.cpp:9-14
+- суть: `int core_stub(){return 42;}` компилится в shipped либе; 2 теста из 142 тратятся на неё. Удалить файл, entry, 2 теста.
+- статус: open
+- источник: reviewer stage 5
+
+### S5-2: SPEC.md:86-120 — дерево не включает реальные файлы
+- файл: SPEC.md:86-120
+- суть: omit'ы `src/scanner_ctl.h`, `src/core_placeholder.{h,cpp}`, `res/version.h.in`, `res/res_paths.rc.in`, `res/gen_assets.py`; добавить (или отметить build-time helpers).
+- статус: open
+- источник: reviewer stage 5
+
+### S5-3: SPEC.md:39 — `psapi gdi32` в списке линкуемых библиотек
+- файл: SPEC.md:39
+- суть: shipped exe не зависит от них (линкер выкинул неиспользуемые импорты); align §2 с бинарником.
+- статус: open
+- источник: reviewer stage 5
+
+### S5-4: README.txt:77,105 — шероховатости RU-текста
+- файл: README.txt:77,105
+- суть: «при отсутствии, битом или неполном» → «повреждённом»; «значения перестают сходиться» → «смещения перестают совпадать».
+- статус: open
+- источник: reviewer stage 5
+
+### S5-5: .gitattributes — нюанс re-smudge для materialized файлов
+- файл: .gitattributes
+- суть: eol-правила применяются только на свежем checkout; dirty re-clone требует `git checkout -- .`; добавить примечание в комментарий.
+- статус: open
+- источник: reviewer stage 5
+
+## Stage 5 — re-review (маjors M-1/M-2 закрыты)
+
+### R5-1: src/tray.h:6-8 vs src/tray.cpp:68 — противоречие про FindWindowW
+- файл: src/tray.h:6-8; src/tray.cpp:68
+- суть: tray.h утверждает, что FindWindowW не находит невидимые окна и указывает EnumWindows+GetClassNameW; tray.cpp говорит, что FindWindowW всё равно находит. Измерено: на hidden-окне FindWindowW возвращает тот же HWND, что EnumWindows. Утверждение в tray.h ложно; выбрать одно утверждение.
+- статус: open
+- источник: reviewer stage 5 (re-review)
+
+### R5-2: src/tray.h:23 — «правый клик нельзя симулировать как reviewer-хук»
+- файл: src/tray.h:23
+- суть: противоречит измерению того же абзаца (доставлено, меню всплыло); читается как «нельзя полагаться / integrity-dependent».
+- статус: open
+- источник: reviewer stage 5 (re-review)
+
+### R5-3: модальные меню/диалоги не обслуживают exit-хуки — нет примечания
+- файл: src/tray.h (docs)
+- суть: измерено: WM_COMMAND 1002 при открытом TrackPopupMenu логирует exit, но shutdown не завершается, пока меню открыто; BM_CLICK/WM_CLOSE из внешнего процесса не дисмиссят MessageBox «already running». Примечание в tray.h, т.к. PostMessage-хуки рекламируются как smoke-путь.
+- статус: open
+- источник: reviewer stage 5 (re-review)
+
+### R5-4: README.txt:26,88 — нет пробела перед тире `Admin rights required- OpenProcess denied`
+- файл: README.txt:26,88
+- суть: EN и RU; косметика, семья S5-4.
+- статус: open
+- источник: reviewer stage 5 (re-review)
+
+### R5-5: build.sh post-strip gate проверяет только --version
+- файл: build.sh (post-strip gate)
+- суть: критерий §9-2 «запуск из распакованного архива» не упражняется в gate; dist-exe smoke-run (запуск+toggle+exit rc 0) закрыл бы гэп.
+- статус: open
+- источник: reviewer stage 5 (re-review)

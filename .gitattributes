@@ -1,0 +1,10 @@
+# Line endings at checkout: cygwin bash scripts must stay LF, Notepad files CRLF,
+# binary assets untouched.
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.txt text eol=crlf
+*.rc text eol=crlf
+*.manifest text eol=crlf
+*.ico binary
+*.wav binary

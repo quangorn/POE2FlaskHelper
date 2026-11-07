@@ -64,6 +64,52 @@ TEST(tooltip_all_states) {
     CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 4294967295)"));
 }
 
+TEST(tooltip_admin_required_status) {
+    // SPEC §8: OpenProcess -> ERROR_ACCESS_DENIED is its own tooltip status. The
+    // label is exact, and the status never sticks: the next merge from a successful
+    // poll replaces it with the normal states (the tooltip recovery path).
+    AppStatus st;
+    st.scanner_enabled = true;
+    st.phase = Phase::AdminRequired;
+    CHECK_EQ(poe2::phase_label(st), std::string("Admin rights required"));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Admin rights required"));
+    // The admin string fits the szTip buffer with room for the hotkey status.
+    CHECK(poe2::tooltip_text(st).size() <= 63);
+
+    // Recovery: the snapshot of a successful poll overwrites it.
+    CHECK(poe2::apply_scanner_snapshot(st, Phase::Attached, 1234));
+    CHECK(st.phase == Phase::Attached);
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 1234)"));
+    CHECK(poe2::apply_scanner_snapshot(st, Phase::WaitingForGame, 0));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+
+    // Disabling the module clears the admin status with every other phase.
+    st.phase = Phase::AdminRequired;
+    st.scanner_enabled = false;
+    CHECK(poe2::apply_scanner_snapshot(st, Phase::AdminRequired, 0));
+    CHECK(st.phase == Phase::ScannerOff);
+    CHECK_EQ(poe2::tooltip_text(st), std::string("Scanner off"));
+}
+
+TEST(tooltip_admin_required_with_hotkey_busy) {
+    // SPEC §4.4 + §8: a taken combo appends to the admin status, the phase text stays
+    // first, the string is clamped to szTip (64 wchar).
+    AppStatus st;
+    st.phase = Phase::AdminRequired;
+    st.hotkey_busy = true;
+    st.hotkey_text = "Ctrl+9";
+    const std::string t = poe2::tooltip_text(st);
+    CHECK(t.find("Admin rights required") == 0);
+    CHECK(t.find("hotkey Ctrl+9 busy") != std::string::npos);
+    CHECK(t.size() <= 63);
+
+    // The clamp also holds with an overflowing hotkey string.
+    st.hotkey_text = "Ctrl+Alt+Shift+Win+F24 plus some extra text to overflow 63 chars";
+    const std::string c = poe2::tooltip_text(st);
+    CHECK(c.size() <= 63);
+    CHECK(c.find("Admin rights required") == 0);
+}
+
 TEST(tooltip_hotkey_busy_status) {
     // SPEC §4.4: a taken combo is a tooltip status, the phase text stays visible.
     AppStatus st;
