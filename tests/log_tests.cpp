@@ -235,7 +235,74 @@ TEST(log_file_is_utf8_lf) {
     }
 }
 
-// S1-5: the log-open failure branch (src/log.cpp:144-146, open_failed_ = true). The
+// Plan-hot-reload.md §4 group 6 (stage 2, §1b): Logger::set_options() mid-run. The level
+// change filters the very next line, and the rotation threshold + keepFiles naming apply to
+// the next batch - opts_ is read under mtx_ in log() and once per batch in worker(), so a
+// reload changes the behaviour while the writer thread is live. Deterministic: FakeClock,
+// one line per batch (flush between), no sleeps.
+TEST(log_set_options_midrun_level_and_rotation) {
+    namespace fs = std::filesystem;
+    fs::path dir = poe2::testing::tmp_dir("log_set_options");
+    poe2::testing::FakeClock clock;
+    clock.set(kMs);
+    clock.set_tz(0);  // pinned: the expected stamps below are UTC-based
+    LogOptions opts;
+    opts.min_level = LogLevel::Info;
+    opts.max_size_kb = 1024;
+    opts.keep_files = 3;
+    Logger log((dir / "logs" / "app.log").string(), clock, opts);
+
+    // Pre-change: the debug line is below the level and is dropped.
+    log.log(LogLevel::Debug, "dropped debug line");
+    log.log(LogLevel::Info, "I000");
+    log.flush();
+    std::string t = poe2::testing::read_file(dir / "logs" / "app.log");
+    CHECK(t.find("dropped debug line") == std::string::npos);
+    CHECK_EQ(poe2::testing::count_lines(t), 1);
+
+    // logging.level change (plan §2): set_options applies to the very next line.
+    opts.min_level = LogLevel::Debug;
+    log.set_options(opts);
+    log.log(LogLevel::Debug, "debug after set");
+    log.flush();
+    t = poe2::testing::read_file(dir / "logs" / "app.log");
+    CHECK(t.find("debug after set") != std::string::npos);
+    CHECK_EQ(poe2::testing::count_lines(t), 2);   // 36 + 48 = 84 bytes on disk
+
+    // maxSizeKb/keepFiles change mid-run: the 1 KB cap fires on the next batch, and the
+    // rotation follows the NEW keepFiles (2), not the startup 3.
+    // 84 + 27*36 = 1056 > 1024 -> the rotation cuts after R026.
+    opts.max_size_kb = 1;
+    opts.keep_files = 2;
+    log.set_options(opts);
+    for (int i = 0; i < 32; ++i) {   // R000..R031, one line per batch
+        char buf[8];
+        std::snprintf(buf, sizeof buf, "R%03d", i);
+        log.log(LogLevel::Info, buf);
+        log.flush();
+    }
+    fs::path base = dir / "logs" / "app.log";
+    CHECK(fs::exists(base));
+    CHECK(fs::exists(dir / "logs" / "app.log.1"));
+    CHECK(!fs::exists(dir / "logs" / "app.log.2"));   // the new keepFiles = 2
+    std::string r1 = poe2::testing::read_file(dir / "logs" / "app.log.1");
+    std::string cur = poe2::testing::read_file(base);
+    CHECK_EQ(poe2::testing::count_lines(r1), 29);     // I000 + the debug line + R000..R026
+    CHECK(r1.find("I000") != std::string::npos && r1.find("debug after set") != std::string::npos);
+    CHECK(r1.find("R000") != std::string::npos && r1.find("R026") != std::string::npos
+          && r1.find("R027") == std::string::npos);
+    CHECK_EQ(poe2::testing::count_lines(cur), 5);     // R027..R031
+    CHECK(cur.find("R027") != std::string::npos && cur.find("R031") != std::string::npos
+          && cur.find("R026") == std::string::npos);
+    // The new level stays in force after the rotation.
+    log.log(LogLevel::Debug, "DBG tail");
+    log.flush();
+    CHECK(poe2::testing::read_file(base).find("DBG tail") != std::string::npos);
+    CHECK_EQ(poe2::testing::count_lines(poe2::testing::read_file(base)), 6);
+}
+
+// S1-5: the log-open failure branch (src/log.cpp:162-164, open_failed_ = true; the line
+// numbers moved with the hot-reload set_options work of stage 2, plan-hot-reload.md §1b). The
 // log path sits under a REGULAR FILE, so the directory cannot be created and the file
 // open fails. The logger reports healthy() == false, drops the lines, and every later
 // log()/flush() must return without stalling or crashing (main.cpp:130-136 depends on

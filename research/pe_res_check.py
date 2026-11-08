@@ -89,6 +89,24 @@ print("Resource tree (type, resource name/id, entry count):")
 for key in sorted(counts, key=str):
     print(f"  {key[0]} {key[1]} -> {counts[key]}")
 
+# WAVE leaves - the family res_ids.h defines: 102 enable.wav, 103 disable.wav and, from
+# plan-hot-reload.md §3, 104 reload.wav. rc compiles WAVE as the NAMED type "WAVE" with
+# language 0x409 (SPEC §4.5, measured 1.1.1 in commit 5637358), which is exactly the
+# shape play_wav's FindResourceExW(L"WAVE", MAKEINTRESOURCEW(id), MAKELANGID(ENGLISH, US))
+# lookup resolves on a non-English system - a WAVE leaf in any other language would be a
+# silent 100%-volume fallback, so the language is asserted together with the ids.
+waves = sorted((name, lang, size) for typ, name, lang, off, size in entries if typ == "WAVE")
+print("WAVE leaves (id, language, bytes):",
+      [f"{n} lang 0x{lang:04x} ({s} B)" for n, lang, s in waves])
+assert [n for n, _, _ in waves] == [102, 103, 104], \
+    f"WAVE leaves {[n for n, _, _ in waves]} - expected exactly 3 ids [102, 103, 104] " \
+    f"(ID_ENABLE_WAV / ID_DISABLE_WAV / ID_RELOAD_WAV of src/res_ids.h): the reload WAV " \
+    f"of plan-hot-reload.md §3 must be in the resource tree"
+assert all(lang == 0x409 for _, lang, _ in waves), \
+    f"WAVE languages {[f'0x{lang:04x}' for _, lang, _ in waves]} - every WAV leaf must " \
+    f"carry language 0x409 (the MAKELANGID(ENGLISH, US) lookup of play_wav, SPEC §4.5)"
+assert all(s > 0 for _, _, s in waves), f"WAVE leaf sizes {[s for _, _, s in waves]} - no empty WAV resource"
+
 man = [e for e in entries if e[0] == 24]
 assert len(man) == 1, f"RT_MANIFEST count {len(man)} (must be exactly 1: app.rc embeds it; /MANIFEST:NO adds no second copy)"
 typ, name, lang, off, size = man[0]

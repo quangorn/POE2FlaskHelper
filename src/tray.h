@@ -108,15 +108,23 @@ extern const wchar_t* const kTrayWindowClass;
 // merges the scanner thread's atomic snapshot into AppStatus (state.cpp).
 constexpr UINT_PTR kStatusTimerId = 1;
 
+// Config timer id (plan-hot-reload.md §3): the 5 s config.json stamp check runs on the
+// same hidden window; WM_TIMER calls TrayHost::on_config_timer. Stage 3 landed the id,
+// the dispatch and the KillTimer pair; stage 4 (main.cpp) sets the 5000 ms SetTimer and
+// assigns the handler body that reads the stamp, reloads the config and plays reload.wav.
+constexpr UINT_PTR kConfigTimerId = 2;
+
 // Tray dependencies injected by main.cpp (app layer): instance, logger, live state,
-// the command handler that performs toggle/sound, and the timer handler that polls
-// the scanner status snapshot.
+// the command handler that performs toggle/sound, the timer handler that polls
+// the scanner status snapshot, and the config timer handler of the 5 s hot-reload
+// cycle (plan-hot-reload.md §3).
 struct TrayHost {
     HINSTANCE hInst;
     Logger& logger;
     AppStatus& status;
     std::function<void(TrayCmd)> on_cmd;
     std::function<void()> on_timer;
+    std::function<void()> on_config_timer;
 };
 
 class Tray {

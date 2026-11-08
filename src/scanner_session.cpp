@@ -21,6 +21,10 @@ constexpr int64_t kLogWindowMs = 5000;
 // Idle wait while the module is off (no reads, no enumeration; the event wakes the
 // thread on toggle/stop, this is the fallback period).
 constexpr int kOffDelayMs = 500;
+// Fallback poll interval for the case no snapshot has been installed yet. main.cpp
+// installs the startup config before scanner.start() (plan-hot-reload.md §3), so this
+// value is unreachable in the app; the SPEC §5 default keeps the cadence legal.
+constexpr int kDefaultPollMs = 50;
 
 std::string hx(uint64_t v) {
     char buf[32];
@@ -123,8 +127,8 @@ void ScannerSession::detach_info(const std::string& reason) {
     vitals_state_ = VitalSendState{};
 }
 
-void ScannerSession::attach_step() {
-    const auto found = deps_.proc.find(deps_.cfg.processNames);
+void ScannerSession::attach_step(const Config& cfg) {
+    const auto found = deps_.proc.find(cfg.scanner.processNames);
     if (found.empty()) {
         publish(Phase::WaitingForGame, 0);
         return;
@@ -200,7 +204,7 @@ void ScannerSession::attach_step() {
     publish(Phase::Attached, pid_);
 }
 
-void ScannerSession::tick_step() {
+void ScannerSession::tick_step(const Config& cfg) {
     const TickResult t = tick(*reader_, deps_.offs, cache_);
     if (t.ok) {
         deps_.log.log(LogLevel::Debug, values_line(t));
@@ -208,11 +212,14 @@ void ScannerSession::tick_step() {
         // scanner thread only. requireGameForeground is folded into the foreground
         // bool by the session: is_foreground is asked on the scanner thread via
         // IProcessProvider. Invalid values never reach evaluate (tick !ok below).
-        const bool fg = !deps_.cfg.requireGameForeground ||
+        // Hot-reload (plan-hot-reload.md §1b): the gate and the whole vitals section
+        // come from the snapshot step() took for this tick, so a threshold/key/cooldown
+        // change is applied on the next tick, within one pollIntervalMs.
+        const bool fg = !cfg.scanner.requireGameForeground ||
                         deps_.proc.is_foreground(pid_);
         std::vector<VitalWait> waits;
         const std::vector<VitalAction> actions =
-            evaluate(t.vals, deps_.full, fg, deps_.clock.now_ms(), vitals_state_, &waits);
+            evaluate(t.vals, cfg, fg, deps_.clock.now_ms(), vitals_state_, &waits);
         for (const VitalAction& a : actions) {
             deps_.sender.press(a.vk, a.extended);
             // SPEC §7 (amended 2026-11-08): each press is an INFO line (live tests read
@@ -259,11 +266,13 @@ void ScannerSession::chain_break(const ChainFail& fail) {
     publish(Phase::WaitingForGame, 0);
 }
 
-void ScannerSession::menu_step() {
+void ScannerSession::menu_step(const Config& cfg) {
     // SPEC §4.6 item 5 (added 2026-11-08): the handle and global_addr are alive and the
     // game is not in a zone. The step re-checks the process first, so a game that
     // closed or restarted while in the menu leaves the state cleanly.
-    const auto found = deps_.proc.find(deps_.cfg.processNames);
+    // Hot-reload (plan-hot-reload.md §1b): the process name list is the snapshot's -
+    // a new scanner.processNames takes effect on the next poll.
+    const auto found = deps_.proc.find(cfg.scanner.processNames);
     if (found.empty()) {
         const uint32_t pid = pid_;
         detach_info("game closed in menu");
@@ -278,7 +287,7 @@ void ScannerSession::menu_step() {
         detach_info("game restarted in menu (PID " + std::to_string(pid_) + " -> " +
                     std::to_string(found[0].pid) + ")");
         cache_.clear();
-        attach_step();
+        attach_step(cfg);
         return;
     }
     const TickResult t = tick(*reader_, deps_.offs, cache_);
@@ -306,13 +315,19 @@ void ScannerSession::step() {
         last_logged_phase_ = Phase::ScannerOff;
         return;
     }
+    // Hot-reload (plan-hot-reload.md §1b): ONE snapshot copy per step. The UI thread
+    // installs a new config at any time (set() swaps the shared_ptr under its mutex),
+    // so one get() makes attach/tick/menu and evaluate() run on one complete immutable
+    // config: a step never mixes the old pollIntervalMs with a new threshold, no race.
+    const std::shared_ptr<const Config> snap = deps_.live->get();
+    if (!snap) return;   // no snapshot installed yet (main.cpp sets it before start())
     const Phase cur = static_cast<Phase>(ctl_.phase.load());
     if (cur == Phase::Attached) {
-        tick_step();
+        tick_step(*snap);
     } else if (cur == Phase::InMenu) {
-        menu_step();
+        menu_step(*snap);
     } else {
-        attach_step();
+        attach_step(*snap);
     }
 }
 
@@ -320,7 +335,11 @@ int ScannerSession::step_delay_ms() const {
     if (!ctl_.enabled.load()) return kOffDelayMs;
     const Phase cur = static_cast<Phase>(ctl_.phase.load());
     if (cur == Phase::Attached) {
-        return std::clamp(deps_.cfg.pollIntervalMs, 10, 1000);
+        // Hot-reload (plan-hot-reload.md §1b): the live scanner.pollIntervalMs, so a
+        // reload changes the reading cadence on the next wait. This call is a separate
+        // thread action outside step(), so it takes its own snapshot copy.
+        const std::shared_ptr<const Config> snap = deps_.live->get();
+        return std::clamp(snap ? snap->scanner.pollIntervalMs : kDefaultPollMs, 10, 1000);
     }
     // SPEC §4.6 item 5: the menu cadence is the process-poll cadence (1-2 s).
     if (cur == Phase::InMenu) return kMenuPollMs;

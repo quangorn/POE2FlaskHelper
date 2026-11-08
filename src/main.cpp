@@ -1,4 +1,5 @@
-// Stage 3: the scanner worker thread on top of the stage 2 tray/hotkey/sound app.
+// Stage 4: the 5 s config.json hot-reload handler of plan-hot-reload.md §3 on top of the
+// stage 2 tray/hotkey/sound app and the stage 3 scanner worker thread.
 // Pipeline (--version -> single instance -> config -> logger -> offsets) is unchanged;
 // after it the app creates the hidden window, registers the hotkey, adds the tray
 // icon, starts the scanner thread and runs the message loop (SPEC §4.1-§4.6).
@@ -10,8 +11,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -20,6 +23,8 @@
 #include "app.h"
 #include "args.h"
 #include "config.h"
+#include "config_snapshot.h"
+#include "file_stamp.h"
 #include "game_process.h"
 #include "hotkeys.h"
 #include "keys.h"
@@ -68,16 +73,21 @@ static std::string to_utf8(const wchar_t* w) {
 // Enable/disable path, shared by the hotkey and the tray menu (SPEC §4.5: both toggle
 // the state and play the matching WAV). State transition + WAV id come from pure core
 // code (state.cpp); PlaySound is async, so the UI is never blocked on the sound.
-// volume comes from the live config (sound.volume, SPEC §5): play_wav scales the WAV
-// on every call, so a runtime config reload can change it between plays (the value
-// is read once per run today - SPEC §5, right config reload is a backlog item).
+// volume comes from the LIVE config snapshot (sound.volume, SPEC §5 + plan-hot-reload.md
+// §3 step 6): play_wav scales the WAV on every call, so a runtime reload changes the
+// loudness between plays - the SPEC §4.5 seam, now fed by the live channel. The startup
+// config is installed into the snapshot before any toggle runs, so the null-snapshot
+// fallback (100 %) is unreachable in the app; it mirrors the session's own guard.
 // The scanner enable flag is an atomic in ScannerCtl: the thread sees it on its next
 // wake, no UI call crosses into the thread.
 static void toggle_scanner(poe2::AppStatus& st, poe2::Scanner& scanner,
-                           poe2::Logger& logger, HINSTANCE hInst, int volume, bool enable) {
+                           poe2::Logger& logger, HINSTANCE hInst,
+                           const poe2::ConfigSnapshot& live, bool enable) {
     const uint16_t wav = poe2::set_scanner_enabled(st, enable);
     scanner.set_enabled(enable);
     logger.log(poe2::LogLevel::Info, enable ? "scanner enabled" : "scanner disabled");
+    auto snap = live.get();
+    const int volume = snap ? snap->sound.volume : 100;
     if (!poe2::play_wav(wav, hInst, volume, logger)) {
         // SPEC §4.5: resource error is a warning, the toggle already happened.
         logger.log(poe2::LogLevel::Warn,
@@ -129,6 +139,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     } else {
         cres = poe2::config_parse(cfg_text);
     }
+
+    // plan-hot-reload.md §3 step 7: the 5 s cycle compares the file stamp against this
+    // baseline. First run - the stamp is taken AFTER the default config.json has been
+    // written, so the first cycle sees an unchanged stamp (plan §0: the app plays no
+    // reload sound at startup). A normal start takes the stamp of the file just read.
+    // Startup-only I/O (the SPEC §4.2 BR-7 note of the block above), before the message loop.
+    poe2::FileStamp cfg_prev;
+    poe2::file_stamp(paths.config_json(), cfg_prev);
 
     poe2::SystemClock clock;
     poe2::Logger logger(paths.log_file(cres.cfg.logging.file), clock,
@@ -215,6 +233,13 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         status.hotkey_text = "Ctrl+9";
     }
 
+    // plan-hot-reload.md §3 step 4: the reload handler re-registers the combo on the SAME
+    // hidden window, so main keeps the combo that is registered now and the fact that it IS
+    // registered. SPEC §4.4: a combo taken at startup never gets registered - hotkey_registered
+    // stays false, and the handler then registers only the new one (no UnregisterHotKey).
+    poe2::Hotkey cur_hotkey = hr.hotkey;
+    bool hotkey_registered = false;
+
     // Scanner wiring: the pure session state machine (poe2_core) with the real Win32
     // providers injected (SPEC §4.2): the thread owns the handle and all reads, main
     // passes only atomics. Stage 4: presses go through the Win32 SendInput sender,
@@ -225,8 +250,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     poe2::WinMemoryReaderFactory factory;
     poe2::Win32KeySender key_sender;
     poe2::ScannerCtl ctl;
+    // Hot-reload stage 2 (plan-hot-reload.md §1b): Deps carries the live config channel
+    // that lives inside ScannerCtl, the existing UI <-> thread channel. The startup
+    // config is installed here; the 5 s handler of plan §3 (stage 4, below) installs every
+    // validated reload with ctl.snapshot.set(), and the scanner thread picks it up on its
+    // next step() / step_delay_ms() - no UI call crosses into the thread.
+    ctl.snapshot.set(std::make_shared<const poe2::Config>(cres.cfg));
     poe2::ScannerSession::Deps deps{proc, factory, clock, logger, ores.offsets,
-                                    cres.cfg.scanner, cres.cfg, key_sender};
+                                    &ctl.snapshot, key_sender};
     poe2::Scanner scanner(deps, ctl);
 
     int exit_code = 0;
@@ -237,7 +268,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     // refresh the tooltip. Exit is handled by the tray WndProc (PostQuitMessage).
     host.on_cmd = [&](poe2::TrayCmd cmd) {
         if (cmd == poe2::TrayCmd::Toggle) {
-            toggle_scanner(status, scanner, logger, hInst, cres.cfg.sound.volume,
+            toggle_scanner(status, scanner, logger, hInst, ctl.snapshot,
                            !status.scanner_enabled);
             tray.update_tooltip();  // tooltip reflects the new state (SPEC §4.3)
         }
@@ -254,6 +285,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         exit_code = 1;
     } else {
         if (poe2::register_toggle_hotkey(tray.hwnd(), hr.hotkey)) {
+            hotkey_registered = true;
             logger.log(poe2::LogLevel::Info, "hotkey " + status.hotkey_text + " registered");
         } else {
             // SPEC §4.4: combo taken -> warning in the log + tooltip status; the app
@@ -271,11 +303,162 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         scanner.start();
         SetTimer(tray.hwnd(), poe2::kStatusTimerId, 500, nullptr);
 
+        // plan-hot-reload.md §3 step 6: the 5 s config.json check rides the same hidden
+        // window (tray.cpp dispatches WM_TIMER on wParam, so kConfigTimerId lands in
+        // host.on_config_timer; ~Tray pairs this SetTimer with KillTimer at exit). The
+        // first check fires 5 s after the start against the startup stamp taken above -
+        // a start plays no sound (plan §0), and the baseline makes that cycle a no-op.
+        SetTimer(tray.hwnd(), poe2::kConfigTimerId, 5000, nullptr);
+
+        // plan-hot-reload.md §3 handler steps 1-7, main thread on WM_TIMER(kConfigTimerId).
+        // Every decision branch is pure core (config.h stamp_changed / config_reload /
+        // path_is_live, tested in tests/reload_tests.cpp); this body owns the Win32 side -
+        // the file_stamp probe, RegisterHotKey/UnregisterHotKey, the tooltip, PlaySound -
+        // and the log strings of plan §5 item 5. Handler state is captured by reference:
+        // cfg_prev (stamp baseline), cur_hotkey + hotkey_registered (what this window
+        // registered), ctl.snapshot (the live config the handler applies reloads onto),
+        // status (tooltip text + busy) and tray (the window the tooltip is written to).
+        // SPEC §4.2, dated 2026-11-08 by the BR-7 precedent of that section's amendment:
+        // "no file I/O on the main thread" is about not blocking the UI in the message
+        // loop; this 5 s check reads ~1 KB (GetFileTime + ReadFile) on the UI thread, which
+        // does not block the UI. The SPEC.md wording is amended in plan stage 5; this
+        // comment is the code-side record of the seam, SPEC.md is untouched here.
+        host.on_config_timer = [&]() {
+            // Step 1 (plan §3): the stamp probe - no change, cycle done.
+            poe2::FileStamp cur;
+            if (!poe2::file_stamp(paths.config_json(), cur)) {
+                // Missing file, or an editor holding it with NO share: CreateFileW cannot
+                // open it and the stamp is unreadable. cfg_prev stays (the plan §3 step 2
+                // rule for a file that cannot be read), the next cycle repeats - one warn
+                // per cycle (plan §6 item 8). The plan §5 warn string is reused: one log
+                // vocabulary for "the file is not readable right now".
+                logger.log(poe2::LogLevel::Warn,
+                           "config.json is locked by another process, retrying next cycle");
+                return;
+            }
+            if (!poe2::stamp_changed(cfg_prev, cur)) return;
+
+            // Step 2 (plan §3): the stamp moved, the text is read. A failed read warns and
+            // leaves cfg_prev untouched, so the NEXT cycle re-reads the same stamp.
+            std::string text;
+            if (!poe2::read_text_file(paths.config_json(), text)) {
+                logger.log(poe2::LogLevel::Warn,
+                           "config.json is locked by another process, retrying next cycle");
+                return;
+            }
+
+            // Step 3 (plan §3): one core decision on the running config. A named copy of the
+            // snapshot shared_ptr keeps `current` alive across the call (config_reload takes
+            // const Config& - the pointee must not be a temporary shared_ptr). stamp_changed
+            // is recomputed on the same stamps inside config_reload, so attempt is true here.
+            auto snap = ctl.snapshot.get();
+            poe2::ReloadOutcome o = poe2::config_reload(*snap, cfg_prev, cur, text, true);
+
+            if (o.json_broken) {
+                // plan §0 + §3 step 3: NO MessageBox in runtime - SPEC §5's startup MessageBox
+                // path is a startup-only branch. The error line keeps the SPEC §7 / plan §5
+                // form "config.json is broken (line N, column M: msg), current config kept",
+                // and o.next = current means the app runs on the config it already has.
+                // cfg_prev advances to the broken stamp: the same broken version logs ONE line
+                // (plan §3 step 3, reload_tests config_reload_broken_then_valid), and the 5 s
+                // cycle stays alive for the fix.
+                logger.log(poe2::LogLevel::Error,
+                           "config.json is broken (" + o.error + "), current config kept");
+                cfg_prev = cur;
+                return;
+            }
+
+            // plan §3 step 3 order: live.set() -> logger.set_options() -> hotkey ->
+            // info changes -> restart-only warns -> play_wav. SPEC §5 parse warnings sit right
+            // after set_options, so they land at the NEW level exactly like the reload lines
+            // (the plan's "reload-строки пишутся уже при новом уровне").
+            ctl.snapshot.set(std::make_shared<const poe2::Config>(o.next));
+            logger.set_options(poe2::log_options(o.next));
+            for (const auto& w : o.warnings) logger.log(poe2::LogLevel::Warn, w);
+
+            // plan §3 step 4: hotkeys.toggleScanner is live through UnregisterHotKey +
+            // RegisterHotKey on the tray window (a main-thread UI call, legal in the loop).
+            if (std::find(o.live_changed.begin(), o.live_changed.end(),
+                          "hotkeys.toggleScanner") != o.live_changed.end()) {
+                const std::string old_text = status.hotkey_text;
+                // config_parse validated the string with parse_hotkey (SPEC §5), so nh.ok is
+                // true; the string is re-parsed to rebuild the mods/vk pair RegisterHotKey needs.
+                const poe2::HotkeyResult nh = poe2::parse_hotkey(o.next.toggleHotkey);
+                if (hotkey_registered) poe2::unregister_toggle_hotkey(tray.hwnd());
+                if (poe2::register_toggle_hotkey(tray.hwnd(), nh.hotkey)) {
+                    cur_hotkey = nh.hotkey;
+                    hotkey_registered = true;
+                    status.hotkey_busy = false;  // SPEC §4.4: busy means RegisterHotKey failed
+                    status.hotkey_text = o.next.toggleHotkey;
+                    logger.log(poe2::LogLevel::Info,
+                               "hotkey " + status.hotkey_text + " re-registered");
+                    tray.update_tooltip();  // tooltip carries the new combo (SPEC §4.3)
+                } else {
+                    // plan §5 warn form: the refused combo first, then the kept one.
+                    logger.log(poe2::LogLevel::Warn,
+                               "hotkey " + o.next.toggleHotkey + " is taken by another process, "
+                               "kept " + old_text);
+                    // plan §3 step 4 restores the old combo: UnregisterHotKey already freed
+                    // the slot, so RegisterHotKey(old) gives the toggle back. hotkey_busy stays
+                    // true - plan §3 pins that status for a refused change, the tooltip reports
+                    // it; hotkey_registered carries the factual state of the restored slot.
+                    hotkey_registered = poe2::register_toggle_hotkey(tray.hwnd(), cur_hotkey);
+                    status.hotkey_busy = true;
+                    status.hotkey_text = old_text;
+                    tray.update_tooltip();
+                }
+            }
+
+            // plan §5 item 5 info string: the paths of live_changed, joined in the canonical
+            // order of the core table. Two cases of an EMPTY live list:
+            // - the whole diff is empty (save without edits) -> plan §3 step 3 "пустой diff"
+            //   form "config.json reloaded (no changes)" + sound;
+            // - only restart-only fields moved: the same "(no changes)" form is the sanctioned
+            //   one, "no changes" = nothing was applied in this cycle; the plan §5 warns name
+            //   the fields that need a restart. The plan §5 example writes the pair as
+            //   "(vitals.Health.threshold, sound.volume)" to show the FORM - the core table
+            //   puts sound.volume BEFORE vitals.* (config.cpp live_paths / config_diff), so the
+            //   order of the line is the core order, pinned by reload_tests
+            //   config_diff_canonical_order_full / config_diff_partial_paths.
+            std::string joined;
+            for (const std::string& p : o.live_changed) {
+                if (!joined.empty()) joined += ", ";
+                joined += p;
+            }
+            logger.log(poe2::LogLevel::Info,
+                       "config.json reloaded (" + (joined.empty() ? std::string("no changes") : joined) + ")");
+
+            // plan §5 lines 118-119 sanction exactly these two restart-only warn strings.
+            // configVersion lands in restart_changed as inert metadata (path_is_live false,
+            // plan §2 "метаданные, не применяется") and gets NO warn.
+            for (const std::string& p : o.restart_changed) {
+                if (p == "scanner.enabledOnStart") {
+                    logger.log(poe2::LogLevel::Warn,
+                               "scanner.enabledOnStart changed - applies after restart");
+                } else if (p == "logging.file") {
+                    logger.log(poe2::LogLevel::Warn,
+                               "logging.file changed - applies after restart");
+                }
+            }
+
+            // plan §0: the sound lands only on a successful parse + apply (broken JSON and a
+            // locked file are silent), an empty diff is a success too. Volume comes from the
+            // snapshot just installed - sound.volume is live (plan §2), so a config that
+            // lowers it plays its OWN reload sound quieter.
+            if (!poe2::play_wav(poe2::kReloadWavResId, hInst, o.next.sound.volume, logger)) {
+                // SPEC §4.5 rule carried onto the reload path: resource failure is a warn.
+                logger.log(poe2::LogLevel::Warn,
+                           "sound resource failed (PlaySound), reload applied without sound");
+            }
+            cfg_prev = cur;  // success: the stamp baseline moves (plan §3 step 3)
+        };
+
         // SPEC §5: scanner.enabledOnStart applies at start (hotkey/menu paths are the
-        // same toggle_scanner() code, so the WAV plays here too).
+        // same toggle_scanner() code, so the WAV plays here too). Volume comes from the
+        // live snapshot like every other toggle (plan §3 step 6).
         if (cres.cfg.scanner.enabledOnStart) {
             logger.log(poe2::LogLevel::Info, "scanner.enabledOnStart is true, enabling at startup");
-            toggle_scanner(status, scanner, logger, hInst, cres.cfg.sound.volume, true);
+            toggle_scanner(status, scanner, logger, hInst, ctl.snapshot, true);
             tray.update_tooltip();
         }
 

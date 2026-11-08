@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "json.h"
@@ -67,6 +68,29 @@ void check_unknown(const Json& obj, const char* const* known, size_t count,
             warn(w, "unknown key \"" + prefix + kv.first + "\" ignored");
         }
     }
+}
+
+// Live paths of the plan §2 table, complete enumeration (restart-only and unknown paths
+// return false by absence, so configVersion - "metadata, not applied" - is not in the list).
+const std::vector<std::string>& live_paths() {
+    static const std::vector<std::string> table = [] {
+        std::vector<std::string> t;
+        t.push_back("hotkeys.toggleScanner");
+        t.push_back("scanner.pollIntervalMs");
+        t.push_back("scanner.requireGameForeground");
+        t.push_back("scanner.processNames");
+        t.push_back("sound.volume");
+        for (size_t i = 0; i < kVitalCount; ++i) {
+            for (const char* field : {"enabled", "key", "threshold", "cooldownMs"}) {
+                t.push_back(std::string("vitals.") + kVitalNames[i] + "." + field);
+            }
+        }
+        t.push_back("logging.level");
+        t.push_back("logging.maxSizeKb");
+        t.push_back("logging.keepFiles");
+        return t;
+    }();
+    return table;
 }
 
 }  // namespace
@@ -301,6 +325,72 @@ LogOptions log_options(const Config& cfg) {
     o.min_level = level_from_string(cfg.logging.level, lvl) ? lvl : LogLevel::Info;
     o.max_size_kb = cfg.logging.maxSizeKb;
     o.keep_files = cfg.logging.keepFiles;
+    return o;
+}
+
+// ---- Hot-reload core (plan-hot-reload.md §1a) ----
+
+bool stamp_changed(const FileStamp& prev, const FileStamp& cur) {
+    return prev.mtime != cur.mtime || prev.size != cur.size;
+}
+
+std::vector<std::string> config_diff(const Config& a, const Config& b) {
+    std::vector<std::string> out;
+    // Canonical order (plan §2 table): each path emitted once, in the header order.
+    auto add = [&](std::string path, bool changed) {
+        if (changed) out.push_back(std::move(path));
+    };
+    add("hotkeys.toggleScanner", a.toggleHotkey != b.toggleHotkey);
+    add("scanner.enabledOnStart", a.scanner.enabledOnStart != b.scanner.enabledOnStart);
+    add("scanner.pollIntervalMs", a.scanner.pollIntervalMs != b.scanner.pollIntervalMs);
+    add("scanner.requireGameForeground",
+        a.scanner.requireGameForeground != b.scanner.requireGameForeground);
+    add("scanner.processNames", a.scanner.processNames != b.scanner.processNames);
+    add("sound.volume", a.sound.volume != b.sound.volume);
+    for (size_t i = 0; i < kVitalCount; ++i) {
+        const std::string base = std::string("vitals.") + kVitalNames[i];
+        const VitalCfg& x = a.vitals[i];
+        const VitalCfg& y = b.vitals[i];
+        add(base + ".enabled", x.enabled != y.enabled);
+        add(base + ".key", x.key != y.key);
+        add(base + ".threshold", x.threshold != y.threshold);
+        add(base + ".cooldownMs", x.cooldownMs != y.cooldownMs);
+    }
+    add("logging.level", a.logging.level != b.logging.level);
+    add("logging.file", a.logging.file != b.logging.file);
+    add("logging.maxSizeKb", a.logging.maxSizeKb != b.logging.maxSizeKb);
+    add("logging.keepFiles", a.logging.keepFiles != b.logging.keepFiles);
+    add("configVersion", a.configVersion != b.configVersion);
+    return out;
+}
+
+bool path_is_live(const std::string& path) {
+    const std::vector<std::string>& t = live_paths();
+    return std::find(t.begin(), t.end(), path) != t.end();
+}
+
+ReloadOutcome config_reload(const Config& current, const FileStamp& prev, const FileStamp& cur,
+                            const std::string& text, bool read_ok) {
+    ReloadOutcome o;
+    o.next = current;  // every non-success branch keeps the running config (plan §0)
+    if (!stamp_changed(prev, cur)) return o;  // nothing happened this cycle: all empty
+    if (!read_ok) {  // file locked (exclusive editor): silent, main.cpp warns and retries
+        o.read_failed = true;
+        return o;  // attempt needs the file READ, not just the stamp moving
+    }
+    o.attempt = true;
+    auto r = config_parse(text);
+    if (r.jsonBroken) {  // app keeps running on current; the error line is for the log
+        o.json_broken = true;
+        o.error = r.parseError;  // "line N, column M: msg" (config_parse position format)
+        return o;  // next stays = current; diff and warnings stay empty
+    }
+    o.next = std::move(r.cfg);  // defaults + warnings per SPEC §5
+    o.warnings = std::move(r.warnings);
+    for (const std::string& path : config_diff(current, o.next)) {
+        if (path_is_live(path)) o.live_changed.push_back(path);
+        else o.restart_changed.push_back(path);  // restart-only + inert metadata
+    }
     return o;
 }
 

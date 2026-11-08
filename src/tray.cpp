@@ -3,6 +3,7 @@
 #include <shellapi.h>   // Shell_NotifyIconW, NOTIFYICONDATA
 
 #include "hotkeys.h"  // kToggleHotkeyId (the id registered on this window)
+#include "win_text.h"  // shared to_wide (single exe-layer implementation, minor m10)
 
 namespace poe2 {
 
@@ -12,16 +13,6 @@ constexpr UINT kTrayMsg = WM_APP + 1;
 const wchar_t* const kTrayWindowClass = L"POE2FlaskHelperTrayWindow";
 
 namespace {
-
-std::wstring to_wide(const std::string& utf8) {
-    if (utf8.empty()) return {};
-    int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
-                                nullptr, 0);
-    std::wstring w(static_cast<size_t>(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
-                        w.data(), n);
-    return w;
-}
 
 void copy_wide(const std::wstring& src, wchar_t* dst, size_t cap) {
     size_t n = src.size() < cap - 1 ? src.size() : cap - 1;
@@ -39,7 +30,11 @@ Tray::Tray(TrayHost& host) : host_(host) {
 Tray::~Tray() {
     if (icon_added_) remove_icon();
     if (hwnd_) {
-        KillTimer(hwnd_, kStatusTimerId);  // status timer must not outlive the window
+        KillTimer(hwnd_, kStatusTimerId);   // status timer must not outlive the window
+        KillTimer(hwnd_, kConfigTimerId);   // config timer, plan-hot-reload.md §3 (main.cpp
+                                            // sets it in stage 4; KillTimer on a window with
+                                            // no such timer is a documented no-op, so the
+                                            // shutdown path is balanced for both timers)
         DestroyWindow(hwnd_);              // NIM_DELETE already ran; window teardown
     }
     if (class_registered_) {
@@ -108,8 +103,18 @@ LRESULT Tray::handle(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_TIMER:
+            // SetTimer with a NULL timer proc: WM_TIMER carries the timer id in wParam
+            // (WM_TIMER Remarks) and lParam is the proc address, which is 0 here - so the
+            // ids of this window are dispatched on wParam. Both timers live on the tray
+            // window: kStatusTimerId merges the scanner snapshot (SPEC §4.3),
+            // kConfigTimerId is the 5 s config.json check of plan-hot-reload.md §3
+            // (stage 3 landed the id, the dispatch and the KillTimer pair; there was no
+            // handler assigned until stage 4, when main.cpp sets the timer and installs
+            // the handler body - this guard keeps a null handler inert).
             if (wp == static_cast<WPARAM>(kStatusTimerId)) {
                 if (host_.on_timer) host_.on_timer();  // scanner status -> tooltip merge
+            } else if (wp == static_cast<WPARAM>(kConfigTimerId)) {
+                if (host_.on_config_timer) host_.on_config_timer();
             }
             return 0;
         case WM_COMMAND: {

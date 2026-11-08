@@ -53,6 +53,14 @@ public:
     // False when the writer thread could not open the log file (SPEC §8).
     bool healthy() const;
 
+    // Hot-reload (plan-hot-reload.md §1b, plan §2 line "logging.level/maxSizeKb/keepFiles"):
+    // install new options while the writer thread runs. The set lands under mtx_, and
+    // every read of opts_ is under the same mutex - min_level in log(), the per-batch
+    // max_size_kb / keep_files copy in worker() - so a level change filters the very next
+    // line and a rotation change applies to the next batch, with no torn mix of old and
+    // new options. logging.file is restart-only (plan §2): the path stays as constructed.
+    void set_options(LogOptions opts);
+
 private:
     void worker();  // writer thread: all file I/O and rotation lives here
 

@@ -96,16 +96,27 @@ Logger::~Logger() {
 }
 
 void Logger::log(LogLevel lvl, const std::string& msg) {
-    if (lvl < opts_.min_level) return;
-    // The stamp is local time: the zone offset is read from the clock per line
-    // (SPEC §7). SystemClock snapshots the zone as it is right now; FakeClock uses
-    // an explicit offset so tests stay deterministic.
-    const std::string line = format_log_line(clock_.now_ms(), lvl, msg, clock_.tz_offset_ms());
+    bool wake = false;
     {
         std::lock_guard lk(mtx_);
-        queue_.push_back(line);
+        // opts_ is read under the mutex (plan-hot-reload.md §1b): set_options() can change
+        // min_level at any time, the pre-reload lock-free read raced with it.
+        if (lvl >= opts_.min_level) {
+            // The stamp is local time: the zone offset is read from the clock per line
+            // (SPEC §7). SystemClock snapshots the zone as it is right now; FakeClock uses
+            // an explicit offset so tests stay deterministic.
+            queue_.push_back(format_log_line(clock_.now_ms(), lvl, msg, clock_.tz_offset_ms()));
+            wake = true;
+        }
     }
-    cv_work_.notify_one();
+    if (wake) cv_work_.notify_one();
+}
+
+void Logger::set_options(LogOptions opts) {
+    // The whole LogOptions is swapped under the mutex: readers see one complete set of
+    // options, never a mix of a new level with an old rotation threshold.
+    std::lock_guard lk(mtx_);
+    opts_ = opts;
 }
 
 void Logger::flush() {
@@ -121,7 +132,6 @@ bool Logger::healthy() const {
 void Logger::worker() {
     std::ofstream f;
     size_t bytes = 0;
-    const size_t max_bytes = static_cast<size_t>(opts_.max_size_kb) * 1024;
     namespace fs = std::filesystem;
     const fs::path log_path(path_);
     const fs::path dir = log_path.parent_path();
@@ -129,14 +139,22 @@ void Logger::worker() {
 
     while (true) {
         std::vector<std::string> batch;
+        LogOptions opts;
         {
             std::unique_lock lk(mtx_);
             cv_work_.wait(lk, [this] { return stop_ || !queue_.empty(); });
             batch.assign(queue_.begin(), queue_.end());
             queue_.clear();
             pending_ = !batch.empty();
+            // Hot-reload (plan-hot-reload.md §1b): ONE options copy per batch under the
+            // mutex, so a set_options() between batches changes max_size_kb / keep_files
+            // for the next write. The pre-reload code read opts_ outside the lock.
+            opts = opts_;
         }
         if (!batch.empty()) {
+            // One threshold per batch (plan-hot-reload.md §1b), so a rotation change
+            // applies to the very next write.
+            const size_t max_bytes = static_cast<size_t>(opts.max_size_kb) * 1024;
             if (!f.is_open() && !open_failed_) {
                 std::error_code ec;
                 if (!dir.empty()) fs::create_directories(dir, ec);
@@ -163,11 +181,11 @@ void Logger::worker() {
                     // Rotation (SPEC §7): app.log.(keep-1) is dropped, names shift up.
                     f.close();
                     std::error_code ec;
-                    if (opts_.keep_files > 1) {
+                    if (opts.keep_files > 1) {
                         // app.log.(keep-1) is dropped, then names shift up by one,
                         // then app.log becomes app.log.1 and a fresh app.log is opened.
-                        fs::remove(dir / (base + "." + std::to_string(opts_.keep_files - 1)), ec);
-                        for (int i = opts_.keep_files - 2; i >= 1; --i) {
+                        fs::remove(dir / (base + "." + std::to_string(opts.keep_files - 1)), ec);
+                        for (int i = opts.keep_files - 2; i >= 1; --i) {
                             fs::path older = dir / (base + "." + std::to_string(i));
                             if (fs::exists(older, ec)) {
                                 fs::rename(older, dir / (base + "." + std::to_string(i + 1)), ec);

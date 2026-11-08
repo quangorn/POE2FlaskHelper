@@ -187,6 +187,26 @@ TEST(state_to_wav_resource_id) {
     CHECK(ID_ENABLE_WAV != ID_DISABLE_WAV);
 }
 
+TEST(reload_wav_resource_id) {
+    // plan-hot-reload.md §3/§4: reload.wav joins the WAV family with id 104 in
+    // res_ids.h, and app.rc compiles it as the same named WAVE type + language 0x409
+    // play_wav looks up (SPEC §4.5). The enable/disable mapping of SPEC §4.5 must not
+    // return it - the reload sound is played by the 5 s config handler (stage 4), not
+    // by a toggle. research/pe_res_check.py pins the same ids in the exe's resource tree.
+    CHECK_EQ(poe2::kReloadWavResId, static_cast<uint16_t>(ID_RELOAD_WAV));
+    CHECK_EQ(static_cast<uint16_t>(ID_RELOAD_WAV), 104);
+    // The three WAV ids are distinct, and the icon id is not a WAV.
+    CHECK(poe2::kReloadWavResId != poe2::kEnableWavResId);
+    CHECK(poe2::kReloadWavResId != poe2::kDisableWavResId);
+    CHECK(poe2::kEnableWavResId != poe2::kDisableWavResId);
+    CHECK(poe2::kIconResId != poe2::kReloadWavResId);
+    // The toggle mapping is unchanged (SPEC §4.5): a toggle never plays reload.wav.
+    CHECK_EQ(poe2::wav_res_id(true), poe2::kEnableWavResId);
+    CHECK_EQ(poe2::wav_res_id(false), poe2::kDisableWavResId);
+    CHECK(poe2::wav_res_id(true) != poe2::kReloadWavResId);
+    CHECK(poe2::wav_res_id(false) != poe2::kReloadWavResId);
+}
+
 TEST(scanner_toggle_state_transitions) {
     AppStatus st;
     uint16_t wav = poe2::set_scanner_enabled(st, true);

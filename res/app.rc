@@ -3,11 +3,12 @@
 
 #include "version.h"
 #include "res_paths.rc"
-#include "res_ids.h"   // IDI_APP_ICON / ID_ENABLE_WAV / ID_DISABLE_WAV (shared with C++ and the tests)
+#include "res_ids.h"   // IDI_APP_ICON / ID_ENABLE_WAV / ID_DISABLE_WAV / ID_RELOAD_WAV (shared with C++ and the tests)
 
 IDI_APP_ICON  ICON      ICON_PATH
 ID_ENABLE_WAV WAVE      ENABLE_WAV_PATH
 ID_DISABLE_WAV WAVE     DISABLE_WAV_PATH
+ID_RELOAD_WAV WAVE      RELOAD_WAV_PATH
 1             24        MANIFEST_PATH   // RT_MANIFEST, per-monitor DPI v2
 
 VS_VERSION_INFO VERSIONINFO

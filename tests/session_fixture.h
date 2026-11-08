@@ -1,9 +1,13 @@
 // Shared ScannerSession test fixture (plan.md §2): the synthetic layout + fake OS
 // wired through the exact Deps struct main.cpp builds. Used by session_tests.cpp
-// (stage 3) and vital_session_tests.cpp (stage 4). Everything is deterministic:
-// FakeClock time, FakeProcess scenarios, FakeMemory image, RecordingKeySender
-// presses; the logger writes to a fresh temp dir, flush() puts lines on disk before
-// log-content checks read them. No sleeps, no real time, no game.
+// (stage 3), vital_session_tests.cpp (stage 4), scanner_thread_tests.cpp (GA-1) and
+// the hot-reload live-application tests of reload_tests.cpp (plan-hot-reload.md §1b).
+// Everything is deterministic: FakeClock time, FakeProcess scenarios, FakeMemory image,
+// RecordingKeySender presses; the logger writes to a fresh temp dir, flush() puts lines
+// on disk before log-content checks read them. No sleeps, no real time, no game.
+// Hot-reload stage 2: the config enters the session through ConfigSnapshot inside
+// ScannerCtl - exactly the channel main.cpp uses - so a test changes the live config
+// with set_live() and the next step() applies it.
 
 #pragma once
 
@@ -11,6 +15,7 @@
 #include <string>
 
 #include "config.h"
+#include "config_snapshot.h"
 #include "fakes/FakeClock.h"
 #include "fakes/FakeMemory.h"
 #include "fakes/FakeProcess.h"
@@ -34,9 +39,7 @@ struct Fix {
     std::string log_path;
     Logger logger;
     FakeMemFactory factory;
-    ScannerCtl ctl;
-    ScannerCfg cfg;
-    Config full;                     // vitals section for evaluate (stage 4)
+    ScannerCtl ctl;          // the live config channel: ScannerCtl carries ConfigSnapshot
     RecordingKeySender sender;
     Deps deps;
     ScannerSession session;
@@ -49,16 +52,31 @@ struct Fix {
           logger(log_path, clock, make_opts(level)),
           factory{},
           ctl{},
-          cfg(cfg_init),
-          full(full_init),
           sender(),
-          deps{proc, factory, clock, logger, rev34(), cfg, full, sender},
+          deps{proc, factory, clock, logger, rev34(), &ctl.snapshot, sender},
           session(deps, ctl) {
+        // The startup snapshot, installed the way main.cpp installs it (plan-hot-reload.md
+        // §1b): scanner section = cfg_init, the rest = full_init (the defaults carry the
+        // vitals section evaluate() reads). Every test below starts on this config; a live
+        // change goes through set_live() exactly like a reload handler.
+        Config start = full_init;
+        start.scanner = cfg_init;
+        ctl.snapshot.set(std::make_shared<const Config>(start));
         build_synthetic(*mem, rev34());
         factory.mem = mem;
         clock.set(100000);
         sender.clock = &clock;       // press timestamps come from the fake clock
     }
+
+    // Live config change: the UI-side set() of the snapshot channel (plan-hot-reload.md
+    // §3 handler order: live.set() first, then the UI-side actions). The next step()/
+    // step_delay_ms() reads it - no thread, no sleep: the fixture drives steps directly.
+    void set_live(const Config& next) {
+        ctl.snapshot.set(std::make_shared<const Config>(next));
+    }
+
+    // The running config a test edits (a copy of the snapshot, as the UI thread reads it).
+    Config live() const { return *ctl.snapshot.get(); }
 
     static LogOptions make_opts(LogLevel level) {
         LogOptions o;

@@ -13,8 +13,11 @@ namespace poe2 {
 
 // Resource ids as C++ constants (the same numbers app.rc compiles from res_ids.h):
 // the state -> WAV mapping returns them and PlaySound consumes them.
+// kReloadWavResId is NOT part of the enable/disable mapping (SPEC §4.5): reload.wav is
+// the config.json hot-reload sound, played by the 5 s handler of plan-hot-reload.md §3
+// (the handler lives in main.cpp, stage 4; the resource and the id landed with stage 3).
 constexpr uint16_t kIconResId = IDI_APP_ICON, kEnableWavResId = ID_ENABLE_WAV,
-                   kDisableWavResId = ID_DISABLE_WAV;
+                   kDisableWavResId = ID_DISABLE_WAV, kReloadWavResId = ID_RELOAD_WAV;
 
 // Menu command ids sent as WM_COMMAND(LOWORD(wParam)) by the tray popup menu: one
 // state-dependent toggle item and Exit. The Exit id is the documented programmatic

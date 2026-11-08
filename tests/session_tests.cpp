@@ -466,7 +466,8 @@ TEST(log_throttle_is_pure_and_deterministic) {
 
 TEST(step_delay_follows_the_phase_and_config) {
     ScannerCfg cfg = poe2::config_defaults().scanner;
-    cfg.pollIntervalMs = 20;               // consumed by Deps as a copy at construction
+    cfg.pollIntervalMs = 20;   // lands in the fixture's startup snapshot
+    // (ConfigSnapshot is the Deps channel, session_fixture.h:62-64)
     Fix f("step_delay", cfg);
     CHECK_EQ(f.session.step_delay_ms(), 500);          // scanner off
     f.ctl.enabled.store(true);

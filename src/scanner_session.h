@@ -19,6 +19,7 @@
 #include "chain.h"
 #include "clock.h"
 #include "config.h"
+#include "config_snapshot.h"
 #include "game_process.h"
 #include "keys.h"
 #include "log.h"
@@ -42,8 +43,12 @@ public:
         IClock& clock;
         Logger& log;
         const Offsets& offs;
-        ScannerCfg cfg;
-        Config full;         // stage 4: the vitals section for evaluate()
+        // Hot-reload live channel (plan-hot-reload.md §1b, replaces the ScannerCfg /
+        // Config copies of the pre-reload code): the snapshot inside ScannerCtl, installed
+        // by the UI thread with set() on every successful config.json reload. step() takes
+        // ONE shared_ptr copy per step, so a whole step runs on one complete, immutable
+        // config - a reload never mixes old and new fields inside one tick.
+        const ConfigSnapshot* live;
         IKeySender& sender;  // stage 4: presses go through the injected sender
     };
 
@@ -54,7 +59,8 @@ public:
 
     // How long the thread should wait (event with timeout) before the NEXT step:
     // SPEC §4.6 - game poll 1-2 s while waiting, 1 s in the menu (item 5),
-    // pollIntervalMs while reading.
+    // pollIntervalMs while reading. pollIntervalMs comes from the live snapshot
+    // (plan-hot-reload.md §1b): a config reload changes the cadence on the next wait.
     int step_delay_ms() const;
 
     uint32_t pid() const { return pid_; }        // attached process (0 = no handle open)
@@ -63,9 +69,12 @@ public:
 private:
     void publish(Phase p, uint32_t pid);
     void detach_info(const std::string& reason);
-    void attach_step();
-    void tick_step();
-    void menu_step();
+    // The step bodies take the step's snapshot by reference: step() copies ONE shared_ptr
+    // for the whole step (plan-hot-reload.md §1b), the sub-steps never read the snapshot
+    // a second time, so one step never sees two configs.
+    void attach_step(const Config& cfg);
+    void tick_step(const Config& cfg);
+    void menu_step(const Config& cfg);
     // A real chain break (not the menu state): the 5 s throttled loss line, the detach
     // and the process-death cache clear (SPEC §4.6 item 4, shared by tick/menu steps).
     void chain_break(const ChainFail& fail);

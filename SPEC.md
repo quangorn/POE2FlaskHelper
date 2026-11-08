@@ -1,7 +1,9 @@
-# POE2FlaskHelper — спецификация v1.1
+# POE2FlaskHelper — спецификация v1.2
 
 Дата: 2026-11-07; правки v1.1 датированы 2026-11-08 (этап 5). Статус: приложение
-реализовано и работает, v1.1 отражает реализованное. Правки v1.1: §2.3 (права запуска в README), §3 (дерево
+реализовано и работает, v1.1 отражает реализованное. Дополнение v1.2 (hot-reload
+`config.json` + `reload.wav`) датировано 2026-11-08 и отражает реализованное в выпуске
+1.2.0. Правки v1.1: §2.3 (права запуска в README), §3 (дерево
 как реализовано, ассеты финальны), §3.1 («Тестируемость»), §4.5 (звук при
 startup-enable), §9 (критерий 12). Дополнено 2026-11-08 (minors группа E2): §4.2
 (амеднт про стартовый файловый I/O, BR-7), §7 (debug-запись часового сбоя видна только
@@ -10,6 +12,16 @@ press-строка и единственная held-строка окна кул
 §2.3 и §3 — `README.txt` перенесён в `res/`.
 Дополнено 2026-11-08 (версионирование): §2.2 (версионные гейты, README из .in),
 §2.4 (новая — формат номера, правила, version.sh и гейт), §3 (дерево), §9 (критерий 14).
+Дополнено 2026-11-08 (hot-reload `config.json`, план [`plan-hot-reload.md`](plan-hot-reload.md),
+выпуск 1.2.0): §5 (переписано «читается один раз на старте» — 5 с цикл, штамп
+`LAST_WRITE`+size, живые параметры, битый JSON в runtime без MessageBox, amend правила
+старта), §4.2 (поправка про 5 с I/O на главном потоке, прецедент BR-7), §4.5
+(`reload.wav`, звук только на успешный parse+apply и не на старте), §7 (reload-строки
+info/warn/error), §8 (битый `config.json` в runtime), §9 (критерий 15), §3 (новые
+файлы и длительности ассетов 0.300 / 0.633 / 0.387 с), §2 (ресурсы — третий WAV), §2.3
+(README: раздел о правке `config.json` на лету, EN+RU, и описание в Files —
+«проверяется каждые 5 секунд»). Дополнено 2026-11-08 (minors закрытия, выпуски 1.2.1/1.2.2):
+§3 дерево — `src/win_text.h` (единый exe-слойный to_wide, m10).
 
 ## 1. Назначение и границы
 
@@ -43,7 +55,7 @@ press-строка и единственная held-строка окна кул
 | Флаги | `/W4 /utf-8 /permissive- /EHsc /GR-`; Release: `/O2 /Gy` |
 | Линковка | `/OPT:REF /OPT:ICF /INCREMENTAL:NO /DEBUG:NONE`, без PDB |
 | Библиотеки | линкуются по target: `user32 kernel32 shell32 psapi gdi32 winmm`; shipped exe импортирует `USER32 KERNEL32 SHELL32 WINMM` (psapi/gdi32 линкуются по target, их импорты вырезает `/OPT:REF` — см. примечание ниже) |
-| Ресурсы | `app.rc`: иконка, VERSIONINFO, манифест (per-monitor DPI v2), `enable.wav`, `disable.wav` |
+| Ресурсы | `app.rc`: иконка, VERSIONINFO, манифест (per-monitor DPI v2), `enable.wav`, `disable.wav`, `reload.wav` (три WAVE-листья ids 102/103/104, именованный тип `WAVE` + язык 0x409 — путь поиска `play_wav`, §4.5; проверка дерева ресурсов — `research/pe_res_check.py`) |
 
 `advapi32` не используется: реестр, Event Log, права доступа и криптография не нужны.
 Изменено 2026-11-08 (minors группа E1, S5-3): список §2 — это линкуемые по target библиотеки
@@ -115,6 +127,11 @@ press-строка и единственная held-строка окна кул
 текст и состав архива не меняются. Проверено: побайтовый diff `.in` c подстановкой
 версии и HEAD-версии файла совпадает, генерированный README в zip — тот же текст
 (152 CRLF-строки), §9-11.
+Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md): в `res/README.txt.in` добавлен
+раздел «Editing config.json at runtime» / «Правка config.json на лету» (English + Russian),
+описание `config.json` в секции Files меняется с «читается один раз на старте» на 5 с
+проверку (механика — SPEC §5). Механизм генерации (`configure_file`, `@PROJECT_VERSION@`)
+и состав архива не меняются; сгенерированный README — 205 CRLF-строк.
 
 Один файл, двуязычный: сначала English, затем Russian. Содержание: запуск, статус
 в трее, где лежат `config.json`, `offsets.json` и лог, что делать при
@@ -179,6 +196,13 @@ Git-тегов нет; якорь «последний подъём» вычис
 (`review S… , 2026-11-08`), сам файл доступен в истории git.
 Изменено 2026-11-08 (версионирование, §2.4): в дерево добавлены `version.sh` и `CHANGELOG.md`;
 пользовательский документ — `res/README.txt.in` (версия подставляется configure_file).
+Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md §3): в ядро добавлен
+`src/config_snapshot.{h,cpp}` (живой снимок конфига), в exe-слой — `src/file_stamp.{h,cpp}`
+(штамп `LAST_WRITE`+size), в тесты — `tests/reload_tests.cpp` (ветки 5 с цикла без Win32
+и файлов), в ассеты — `res/reload.wav`; длительности ассетов: 0.300 / 0.633 / 0.387 с.
+Изменено 2026-11-08 (minors закрытия, m10): в exe-слой добавлен `src/win_text.h` —
+единый header-only inline `poe2::to_wide` для `tray.cpp` и `file_stamp.cpp` (третья
+per-TU копия убрана; reverse-копии `main.cpp`/`game_process.cpp` вне scope m10).
 
 ```
 build.sh  version.sh  CHANGELOG.md  CMakeLists.txt  README.md  SPEC.md  plan.md  backlog.md
@@ -197,12 +221,19 @@ src/vital_math.{h,cpp} ceil-формула резервов зелий
 src/vitals.{h,cpp}     evaluate(): порог, кулдаун, foreground
 src/scanner_session.{h,cpp} state machine сканера, step()
 src/scanner_ctl.h      ScannerCtl: атомиксы enable/stop + снимок phase/pid (UI ↔ поток)
+                       + ConfigSnapshot live-канал конфига (§5)
+src/config_snapshot.{h,cpp} ConfigSnapshot: mutex + shared_ptr<const Config>; set()
+        ставит снимок из UI-потока, get() отдаёт целостный снимок потоку сканера (§5)
 src/wav.{h,cpp}       PCM16-масштабирование WAV-байт (sound.volume, §4.5)
 src/clock.h            интерфейс IClock
 exe (граница ОС — весь Win32 здесь):
 src/main.cpp           WinMain, single instance, message loop, --version
 src/tray.{h,cpp}       иконка, контекстное меню из двух пунктов, скрытое окно
 src/hotkeys.{h,cpp}    RegisterHotKey
+src/file_stamp.{h,cpp} штамп config.json: CreateFileW(share READ|WRITE) +
+                       GetFileTime(LAST_WRITE) + GetFileSizeEx (5 с цикл §5)
+src/win_text.h         единый poe2::to_wide (UTF-8→wide), header-only inline
+                       (tray.cpp + file_stamp.cpp, m10)
 src/sound.{h,cpp}      PlaySound из ресурсов + PCM16-громкость (SND_MEMORY, §4.5)
 src/scanner.{h,cpp}    рабочий поток-обёртка над ScannerSession (atomic + событие)
 src/game_process.{h,cpp} поиск PID/foreground/liveness; заменяет плановый
@@ -212,7 +243,7 @@ src/win_keys.cpp       реализация IKeySender на SendInput
 src/mem/             reader.h (IMemoryReader, IMemoryReaderFactory) + win_reader.{h,cpp}
 src/system_clock.h   реализация IClock
 src/res_ids.h        общие id ресурсов (app.rc, C++, тесты)
-res/app.ico res/app.rc res/app.manifest.in res/enable.wav res/disable.wav
+res/app.ico res/app.rc res/app.manifest.in res/enable.wav res/disable.wav res/reload.wav
 res/README.txt.in  пользовательский двуязычный документ (§2.3): лежит в res/, `configure_file` создаёт из него
          `build/README.txt` с версией проекта (§2.2), в корень zip копируется
          сгенерированный файл (build.sh);
@@ -222,7 +253,9 @@ res/version.h.in res/res_paths.rc.in  входы configure_file: build/version.h
 res/gen_assets.py  build-time helper (не линкуется, не в zip): генератор stub-ассетов
         этапа 0 (app.ico/enable.wav/disable.wav); ассеты финальны (коммиты 7b286a3,
         6e3596f), скрипт оставлен как история воспроизводимости заглушек;
-tests/ мини-фреймворк test.h + test_main.cpp + *_tests.cpp + test_tmp.{h,cpp} (временные
+tests/ мини-фреймворк test.h + test_main.cpp + *_tests.cpp (в том числе
+       reload_tests.cpp — ветки 5 с цикла: stamp_changed / config_diff / path_is_live /
+       config_reload, §5) + test_tmp.{h,cpp} (временные
        каталоги) + session_fixture.h (общий фиксированный синтетический образ для
        session/vital-тестов) + fakes/ (FakeMemory,
        FakeClock, FakeProcess, RecordingKeySender) + synthetic_layout.{h,cpp};
@@ -235,6 +268,10 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
 Ассеты финальны и предоставлены пользователем 2026-11-07: `res/app.ico`
 (записи 16–256 px, прозрачный фон), `res/enable.wav` и `res/disable.wav`
 (0.82 с / 0.689 с, короткие, < 1 с). Заглушки больше не нужны.
+Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md §0): `res/reload.wav` — новый
+ассет (26540 B, PCM16 mono 44100 Hz, измерено 0.300 с), `res/enable.wav` и
+`res/disable.wav` подрезаны пользователем до 0.633 с / 0.387 с. Все три < 1 с;
+`reload.wav` играется только на релоад конфига (§4.5).
 
 ### 3.1 Тестируемость (добавлено 2026-11-08)
 
@@ -287,6 +324,17 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
   К этому моменту нет ни окна, ни UI, который можно заблокировать, и сканерный поток ещё
   не запущен. Все строки лога пишет поток-записщик (async), главный поток лог-файл не
   трогает.
+- Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md §3; прецедент — тот же BR-7
+  пункт выше): формулировка «никакого файлового I/O» на главном потоке фиксирует дух
+  плана — UI-поток не блокируется долгими операциями во время message loop. 5 с проверка
+  `config.json` живёт на главном потоке (`WM_TIMER(kConfigTimerId)`, handler в main.cpp)
+  и читает ~1 КБ: `GetFileTime` + `GetFileSizeEx` (штамп) и чтение текста файла; UI не
+  блокируется, масштаб — тот же, что стартовый I/O предыдущего пункта. Файл лога главный
+  поток по-прежнему не трогает (строки пишет async-записщик). На главном потоке остаются
+  только Win32-вызовы ветки применения: `RegisterHotKey`/`UnregisterHotKey` и `PlaySound`;
+  всё решение (штамп, диф, живой/после-рестарта сплит, ветки битого JSON) — чистое ядро
+  (§5). Сканерный поток файлов не читает. Открытое popup-меню (`TrackPopupMenu` modal
+  loop) может задержать проверку таймера — известный пункт чеклиста плана §6 п.9.
 
 ### 4.3 Трей
 
@@ -330,6 +378,16 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
   хоткей, и на пункт меню.
 - Изменено 2026-11-08: включение при старте (`scanner.enabledOnStart: true`) — это
   тот же путь переключения, поэтому играет `enable.wav` (решает расхождение S2-5).
+- Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md §0/§3): третий WAV —
+  `reload.wav` (id 104, PCM16 mono 44100 Hz, 0.300 с; `enable.wav`/`disable.wav`
+  подрезаны до 0.633 с / 0.387 с). Играется только на успешный разбор + применение
+  валидного `config.json` в 5 с цикле (§5) — пустой diff тоже успех; на старте звук
+  не играется, битый JSON и заблокированный файл = тишина. Громкость берётся из живого
+  снимка конфига (`sound.volume`), тем же путём PCM16-масштабирования ниже: `play_wav`
+  пересчитывает байты на каждое проигрывание, поэтому правка `sound.volume` в том же
+  цикле делает собственный звук релоада тише. `reload.wav` вне маппинга
+  enable/disable (§4.3), id `kReloadWavResId`. Ошибка ресурса на reload-пути —
+  warn «reload applied without sound», релоад применяется без звука (§7).
 - `PlaySound(MAKEINTRESOURCE(...), hInst, SND_RESOURCE | SND_ASYNC | SND_NODEFAULT)`;
   UI не блокируется.
 - Ошибка ресурса — warning, переключение происходит без звука.
@@ -429,8 +487,49 @@ detach (выключение сканера, разрыв цепочки) зак
 
 ## 5. `config.json`
 
-Лежит рядом с exe. Читается один раз на старте; изменения применяются после
-перезапуска.
+Лежит рядом с exe. Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md): файл
+читается на старте и перечитывается каждые 5 с; изменения живых параметров применяются
+без перезапуска. На старте приложение запоминает штамп файла — `LAST_WRITE` время
+(100 ns тики) + размер. Каждые 5 с главный поток читает штамп: штамп не двигался — цикл
+ничего не делает; двигался — текст читается, разбирается по правилам ниже и применяется.
+Штамп двигается только на обработанную версию: одна битая версия логируется один раз,
+заблокированный файл перечитывается следующим циклом.
+
+Ветки 5 с цикла (plan-hot-reload.md §3 handler):
+
+- штамп двигался, текст не читается (exclusive lock редактора, удалённый или
+  неоткрываемый файл) — warn §7, штамп не двигается, следующая проверка повторит;
+- битый JSON или корень не объект — error в лог, **MessageBox нет** (MessageBox
+  §4.1/§8 остаётся стартовой веткой), приложение и сканер живут на текущем конфиге,
+  5 с цикл сохраняется: файл можно починить, и правка применится;
+- валидный JSON — порядок применения: живой снимок конфига (`ConfigSnapshot::set`) →
+  опции лога (`Logger::set_options`, reload-строки пишутся уже при новом уровне) →
+  parse-warning'и §5 → перерегистрация хоткея, если менялся `hotkeys.toggleScanner` →
+  info-строка применённых путей → warn полей после рестарта → `reload.wav` (§4.5).
+  Пустой diff (сохранение без правок) — успех: info `config.json reloaded (no changes)`
+  и звук;
+- применяются только живые параметры таблицы ниже, restart-only поля — после
+  перезапуска; решение о ветках — чистое ядро (`config_reload`), тестируется без Win32.
+
+Живые параметры (полный список, plan-hot-reload.md §2):
+
+| Параметр | Механика применения |
+|---|---|
+| `vitals.*.enabled` / `key` / `threshold` / `cooldownMs` | следующий тик `evaluate()` (≤ `pollIntervalMs`) |
+| `scanner.pollIntervalMs` | темп опроса потока сканера (живой снимок в `step_delay_ms()`) |
+| `scanner.requireGameForeground` | следующий `tick_step()` foreground-gate |
+| `scanner.processNames` | следующий опрос поиска процесса |
+| `sound.volume` | PCM16-масштабирование на каждое проигрывание (§4.5) |
+| `hotkeys.toggleScanner` | `UnregisterHotKey` + `RegisterHotKey` на скрытом окне, tooltip refresh; комбинация занята — warn и возврат старой (§7) |
+| `logging.level` / `logging.maxSizeKb` / `logging.keepFiles` | `Logger::set_options()`: фильтр уровня, ротация считается с следующей записи |
+
+После перезапуска (warn §7): `scanner.enabledOnStart` (старт-семантика) и
+`logging.file` (перезапуск writer-потока = риск потерять reload-строки).
+`configVersion` — метаданные, не применяется, warn не печатает.
+
+Стартовые правила (аменд 2026-11-08: старт берёт тот же разбор, что и 5 с цикл):
+файла нет — создаётся дефолтный; битый файл на старте — error + MessageBox, работа на
+значениях по умолчанию (§4.1, §8).
 
 ```json
 {
@@ -454,14 +553,16 @@ detach (выключение сканера, разрыв цепочки) зак
 }
 ```
 
-Правила разбора:
+Правила разбора (изменено 2026-11-08: действуют и на старте, и в 5 с цикле; warning'и
+цикла пишутся уже при новом уровне логирования, §5 ветка «валидный JSON»):
 
 - неизвестные ключи — warning в лог, игнорируются;
 - отсутствующие — значения по умолчанию;
 - невалидные (`threshold` вне 1–100, `cooldownMs < 0`, `pollIntervalMs` вне 10–1000,
   `sound.volume` вне 0–100, неизвестная клавиша, хоткей без модификатора) — warning
   и значение по умолчанию;
-- битый JSON — error в лог, MessageBox, работа на значениях по умолчанию;
+- битый JSON — на старте: error в лог, MessageBox, работа на значениях по умолчанию;
+  в runtime: error в лог без MessageBox, текущий конфиг сохраняется (§8);
 - ключи Vital'ов пишутся одиночными клавишами без модификаторов (буквы, цифры,
   F1–F24, NumPad).
 
@@ -520,6 +621,31 @@ detach (выключение сканера, разрыв цепочки) зак
   видна в логе только при `logging.level: "debug"`; при `info` она не появляется —
   фильтр лога отбрасывает строки ниже уровня.
 - **warn/error**: конфиг, ресурсы, `OpenProcess`, несовпадение смещений.
+- Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md §5): строки 5 с цикла
+  `config.json`, формы дословно. **info**: `config.json reloaded (<live_changed
+  canonical>)` — применённые пути в canonical-порядке таблицы ядра (порядок закрепляет
+  `config_diff`: `sound.volume` идёт до `vitals.*`, тесты
+  `config_diff_canonical_order_full`/`config_diff_partial_paths`; plan §2 задаёт
+  набор путей), пример
+  `config.json reloaded (sound.volume, vitals.Health.threshold)`; и
+  `config.json reloaded (no changes)` — пустой diff (сохранение без правок) и случай,
+  когда изменились только restart-only поля (в цикле ничего не применено);
+  `hotkey <x> re-registered` после успешной перерегистрации (`hotkey Ctrl+9
+  re-registered`). **warn**: parse-warning'и §5 (`unknown key "<ключ>" ignored`,
+  `invalid "<путь>", default used`, `invalid "<путь>" (<детали>), default "<дефолт>"
+  used`) — пишутся сразу после смены уровня, уже при новом; `config.json is locked by
+  another process, retrying next cycle` — файл заблокирован редактором exclusive-lock,
+  **тот же warn при удалённом/неоткрываемом файле** (штамп не читается; закрытый
+  minor m11 ревью стадии 4 — один warn за цикл, штамп не двигается);
+  `logging.file changed - applies after restart`, `scanner.enabledOnStart changed -
+  applies after restart` (ровно эти две restart-only строки; `configVersion` —
+  метаданные, warn не печатает, §5); `hotkey <новая> is taken by another process, kept
+  <старая>` — новая комбинация занята, слот возвращается старой (`hotkey Ctrl+8 is
+  taken by another process, kept Ctrl+9`); `sound resource failed (PlaySound), reload
+  applied without sound` — WAVE-ресурс reload.wav недоступен (закрытый minor m12),
+  релоад применён без звука. **error**: `config.json is broken (line N, column M: msg),
+  current config kept` — битый JSON в runtime, MessageBox нет (§8). Штамп двигается
+  только на обработанную версию: та же битая версия логируется один раз.
 
 При уровне `info` одиночные изменения значений (строки `tick:`) не пишутся; нажатия
 клавиш и held-строки пишутся (изменено 2026-11-08, группа L1). Live-тесты ведутся при
@@ -537,6 +663,7 @@ detach (выключение сканера, разрыв цепочки) зак
 | Каталог exe только для чтения | сообщение и выход |
 | Отсутствующий/битый WAV | warning, работа без звука |
 | Нет/битый `offsets.json` | error + MessageBox + выход с кодом 2 |
+| Битый `config.json` в runtime (5 с цикл, hot-reload — изменено 2026-11-08) | error в лог **без MessageBox** (`config.json is broken (line N, column M: msg), current config kept`), сканер и приложение живут на текущем конфиге, 5 с цикл сохраняется (починка применяется), та же битая версия логируется один раз (§5, §7) |
 
 ## 9. Критерии приёмки
 
@@ -571,3 +698,12 @@ detach (выключение сканера, разрыв цепочки) зак
     манифест и имя zip носят ту же версию (`research/pe_res_check.py` в build.sh); README
     в архиве генерируется с той же версией; `build.sh` не пакует при нарушении
     согласованности «код <-> версия» (правила и гейт — §2.4).
+15. Изменено 2026-11-08 (hot-reload, план plan-hot-reload.md §6): правка живого параметра
+    `config.json` применяется без перезапуска не более чем за один 5 с цикл + следующий
+    тик сканера: правка `vitals.Health.threshold` даёт info-строку
+    `config.json reloaded (vitals.Health.threshold)`, играет `reload.wav` и срабатывание
+    по новому порогу; старт — звука нет; битый JSON в runtime — error без MessageBox,
+    сканер живёт на текущем конфиге, починка применяется, повторной строки про ту же
+    битую версию нет; restart-only поля (`logging.file`, `scanner.enabledOnStart`) дают
+    warn «applies after restart»; `./build.sh` зелёный с 3 WAVE-листьями в дереве
+    ресурсов (`pe_res_check`), `ctest` зелёный, smoke-выход rc 0.

@@ -44,13 +44,36 @@ Right-click the tray icon - a two-item menu:
   Exit - clean exit, the icon disappears from the tray.
 Double-click on the icon does nothing.
 
+Editing config.json at runtime
+------------------------------
+The program checks config.json every 5 seconds. Edit the file and save it: the settings
+are validated and applied without a restart, the log gets a line
+"config.json reloaded (sound.volume, vitals.Health.threshold)" listing the paths that
+were applied, and reload.wav plays. Applied live: enabled / key / threshold / cooldownMs
+of each Vital, scanner.pollIntervalMs, scanner.requireGameForeground,
+scanner.processNames, sound.volume, hotkeys.toggleScanner (the hotkey is re-registered
+and the tray tooltip updates), logging.level, logging.maxSizeKb, logging.keepFiles. A
+live setting takes effect at the next scanner tick - at most 5 seconds + one poll after
+the save. Saving the file without changes is a success too
+("config.json reloaded (no changes)").
+Two settings apply only after a restart and the log names them ("scanner.enabledOnStart
+changed - applies after restart", "logging.file changed - applies after restart").
+A broken config.json in runtime is an error line in the log, not a message box: the
+program keeps running on the settings it has, the 5 s check continues, and the fixed file
+is applied when you save it. If an editor holds the file with an exclusive lock, or the
+file is deleted, you get one warning per check and the next check tries again. If the new
+hotkey is taken by another program, the old one is kept and the log warns.
+No sound plays at startup: reload.wav plays only on a successful reload, at the
+sound.volume level.
+
 Files (everything lives next to the exe, the current directory is ignored)
 --------------------------------------------------------------------------
 config.json  - settings: scanner switch at start (enabledOnStart), poll interval,
   requireGameForeground, process names, the Ctrl+9 hotkey, sound volume (sound.volume,
-  0-100 % for enable.wav/disable.wav, 100 by default), and for each Vital:
-  enabled, key, threshold (1-100 %), cooldownMs. The file is read once at startup:
-  edit it and restart the program to apply changes.
+  0-100 % for enable.wav/disable.wav/reload.wav, 100 by default), and for each Vital:
+  enabled, key, threshold (1-100 %), cooldownMs. The file is checked every 5 seconds
+  (see "Editing config.json at runtime"): most settings apply on the fly, edit and save;
+  enabledOnStart and logging.file apply after a restart.
 offsets.json - game offsets, mandatory. After a game patch the values stop matching
   and "Offsets mismatch" appears in the log. Fix: run find_offsets.py
   (python find_offsets.py --hp <HP> --mana <Mana> --es <ES> --current-hp <current HP>
@@ -124,13 +147,37 @@ Ctrl+9 - глобальный хоткей, включает и выключае
   Exit - корректный выход, иконка исчезает из трея.
 Двойной клик по иконке ничего не делает.
 
+Правка config.json на лету
+--------------------------
+Программа проверяет config.json каждые 5 секунд. Отредактируйте файл и сохраните его:
+настройки проверяются и применяются без перезапуска, в логе появляется строка
+"config.json reloaded (sound.volume, vitals.Health.threshold)" со списком применённых
+параметров, и играет reload.wav. Применяются на лету: enabled / key / threshold /
+cooldownMs каждого Vital'а, scanner.pollIntervalMs, scanner.requireGameForeground,
+scanner.processNames, sound.volume, hotkeys.toggleScanner (хоткей перерегистрируется,
+тултип обновляется), logging.level, logging.maxSizeKb, logging.keepFiles. Живая
+настройка действует с следующего тика сканера - максимум 5 секунд + один опрос после
+сохранения. Сохранение файла без правок тоже успех ("config.json reloaded (no changes)").
+Две настройки применяются только после перезапуска, и лог называет их
+("scanner.enabledOnStart changed - applies after restart",
+"logging.file changed - applies after restart").
+Битый config.json в runtime - error-строка в логе, без окна сообщения: программа работает
+на текущих настройках, 5 с проверка продолжается, и исправленный файл применяется при
+сохранении. Если редактор держит файл exclusive-локом или файл удалён, за каждую
+проверку - один warn, следующая проверка попробует снова. Если новая комбинация хоткея
+занята другой программой, старая сохраняется, и лог предупреждает.
+На старте звук не играется: reload.wav звучит только при успешном релоаде, с громкостью
+sound.volume.
+
 Файлы (всё рядом с exe, текущая папка игнорируется)
 -----------------------------------------------------
 config.json  - настройки: включение сканера при старте (enabledOnStart), интервал
   опроса, requireGameForeground, имена процессов, хоткей Ctrl+9, громкость звука
-  (sound.volume, 0-100 % для enable.wav/disable.wav, по умолчанию 100), и для каждого
-  Vital'а: enabled, клавиша, порог (1-100 %), cooldownMs. Файл читается один раз на
-  старте: чтобы применить изменения, отредактируйте его и перезапустите программу.
+  (sound.volume, 0-100 % для enable.wav/disable.wav/reload.wav, по умолчанию 100), и для
+  каждого Vital'а: enabled, клавиша, порог (1-100 %), cooldownMs. Файл проверяется каждые
+  5 секунд (см. "Правка config.json на лету"): большинство настроек применяются на лету,
+  отредактируйте и сохраните; enabledOnStart и logging.file применяются после
+  перезапуска.
 offsets.json - смещения игры, обязателен. После патча игры смещения перестают
   совпадать и в логе появляется "Offsets mismatch". Что делать: запустить
   find_offsets.py (python find_offsets.py --hp <HP> --mana <Mana> --es <ES>

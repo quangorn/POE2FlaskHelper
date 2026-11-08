@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(POE2FlaskHelper VERSION 1.1.1 LANGUAGES CXX RC)
+project(POE2FlaskHelper VERSION 1.2.3 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,6 +49,7 @@ add_library(poe2_core STATIC
     src/json.cpp
     src/log.cpp
     src/config.cpp
+    src/config_snapshot.cpp
     src/offsets.cpp
     src/keys.cpp
     src/state.cpp
@@ -76,13 +77,15 @@ if(MSVC)
 endif()
 
 # App layer: tray/hotkey/sound are Win32 (SPEC §4.2: UI/GDI on the main thread), the
-# scanner thread wrapper, the real process provider, the ReadProcessMemory reader and
-# the SendInput key sender are the exe's OS edge - poe2_core units never compile them.
+# scanner thread wrapper, the real process provider, the ReadProcessMemory reader, the
+# SendInput key sender and the file_stamp metadata probe (plan-hot-reload.md §3) are the
+# exe's OS edge - poe2_core units never compile them.
 add_executable(POE2FlaskHelper WIN32
     src/main.cpp
     src/tray.cpp
     src/hotkeys.cpp
     src/sound.cpp
+    src/file_stamp.cpp
     src/scanner.cpp
     src/game_process.cpp
     src/win_keys.cpp
@@ -105,6 +108,7 @@ add_executable(poe2_tests
     tests/args_tests.cpp
     tests/json_tests.cpp
     tests/config_tests.cpp
+    tests/reload_tests.cpp
     tests/hotkey_tests.cpp
     tests/keymap_tests.cpp
     tests/state_tests.cpp
