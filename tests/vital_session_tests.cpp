@@ -1,9 +1,11 @@
 // Stage 4 scanner-thread wiring proofs (plan.md "Этап 4", deliverable 6): attach ->
 // tick on the synthetic layout -> values below threshold -> RecordingKeySender presses
 // with the right vk/extended, cooldown between ticks through the session's own state,
-// foreground flip via FakeProcess stops presses, chain break stops presses, and at log
-// level "info" no press/value lines appear. All through ScannerSession::step() with
-// the fake provider/memory/clock; no game, no sleeps.
+// foreground flip via FakeProcess stops presses, chain break stops presses, and the
+// SPEC §7 (amended 2026-11-08) log levels: at "info" the press lines and the ONE held
+// line per cooldown window appear while the per-tick value lines stay debug-only; the
+// held-line flag is per-session and does not survive a detach. All through
+// ScannerSession::step() with the fake provider/memory/clock; no game, no sleeps.
 #include "test.h"
 
 #include <string>
@@ -63,27 +65,36 @@ TEST(session_cooldown_between_ticks_and_foreground_flip) {
     attach_and_drop_hp(f, 1000);
     f.session.step();                    // tick 1: press
     CHECK_EQ(f.sender.count(), 1);
+    CHECK_EQ(f.count(", key=1\n"), 1);   // the press line, exact form ending at the newline
 
     f.clock.advance(50);                 // 50 ms < 1000: next tick must not press
     f.session.step();
     CHECK_EQ(f.sender.count(), 1);
-    CHECK_EQ(f.count("key=1"), 1);       // no extra debug press line either
+    CHECK_EQ(f.count(", key=1\n"), 1);   // no extra press line
+    CHECK_EQ(f.count(" held: "), 1);      // SPEC §4.7 amendment: below threshold inside
+                                          // the cooldown -> ONE info held line
+    CHECK(f.log_text().find("Health 26% < 50%, key=1 held: cooldown left 950 ms")
+          != std::string::npos);
 
     f.clock.advance(950);                // exactly 1000 ms from the last send
     f.session.step();
     CHECK_EQ(f.sender.count(), 2);
+    CHECK_EQ(f.count(", key=1\n"), 2);
+    CHECK_EQ(f.count(" held: "), 1);      // same window: the send closed it, no new line
 
     f.proc.set_foreground(false);        // SPEC §4.8/§9 criterion 9: keys stop
     f.clock.advance(1000);               // cooldown is ready, foreground is not
     f.session.step();
     CHECK_EQ(f.sender.count(), 2);
-    CHECK_EQ(f.count("key=1"), 2);
+    CHECK_EQ(f.count(", key=1\n"), 2);
+    CHECK_EQ(f.count(" held: "), 1);       // the foreground gate runs first: no held line
 
     f.proc.set_foreground(true);         // back in foreground: presses resume
     f.clock.advance(1000);
     f.session.step();
     CHECK_EQ(f.sender.count(), 3);
-    CHECK_EQ(f.count("key=1"), 3);
+    CHECK_EQ(f.count(", key=1\n"), 3);
+    CHECK_EQ(f.count(" held: "), 1);
 }
 
 TEST(session_no_presses_when_chain_broke) {
@@ -123,20 +134,58 @@ TEST(session_presses_when_foreground_not_required) {
     CHECK_EQ(f.sender.recs[0].vk, static_cast<uint16_t>('1'));
 }
 
-TEST(session_info_level_hides_presses_and_values) {
-    // SPEC §7 + acceptance criterion 8: at level "info" the debug press and value
-    // lines must not appear; the press itself still happens (RecordingKeySender).
+TEST(session_info_level_shows_presses_and_held_hides_values) {
+    // SPEC §7 (amended 2026-11-08): at level "info" the press lines and the ONE held
+    // line per cooldown window ARE written; the per-tick value lines stay debug-only.
     Fix f("s4_info_level", poe2::config_defaults().scanner,
           poe2::config_defaults(), LogLevel::Info);
     attach_and_drop_hp(f, 1000);
     f.session.step();                    // fires a press
     CHECK_EQ(f.sender.count(), 1);       // presses continue at info level
-    const std::string t = f.log_text();
-    CHECK(t.find("key=") == std::string::npos);         // no press lines
-    CHECK(t.find("tick:") == std::string::npos);        // no values lines
-    CHECK(t.find("Health 26%") == std::string::npos);   // no press line in any form
-    CHECK(t.find("Health 1000/5000") == std::string::npos);
-    CHECK(t.find("attached PID 4242") != std::string::npos);   // info lines stay
+    const std::string t1 = f.log_text();
+    CHECK(t1.find("Health 26% < 50%, key=1\n") != std::string::npos);  // press line at info
+    CHECK(t1.find("tick:") == std::string::npos);                       // no values lines
+    CHECK(t1.find("Health 1000/5000") == std::string::npos);
+    CHECK(t1.find("chain OK") == std::string::npos);                    // chain steps stay debug
+    CHECK(t1.find("attached PID 4242") != std::string::npos);           // info lines stay
+
+    f.clock.advance(50);                 // inside the cooldown: the window's ONE line
+    f.session.step();
+    const std::string t2 = f.log_text();
+    CHECK(t2.find("Health 26% < 50%, key=1 held: cooldown left 950 ms") != std::string::npos);
+    CHECK_EQ(f.count(" held: "), 1);
+    CHECK_EQ(f.sender.count(), 1);       // held by the cooldown: no press
+    f.clock.advance(100);                // same window: no second line
+    f.session.step();
+    CHECK_EQ(f.count(" held: "), 1);
+}
+
+TEST(session_held_line_rearms_after_detach_and_reattach) {
+    // The held-line window flag is per-session (the SPEC §4.7 amendment): detach closes
+    // the cooldown timers and flags, the new attach starts clean and fires on its first
+    // tick (SPEC §4.7 no-arming), then gets one line in the new window.
+    Fix f("s4_held_reattach", poe2::config_defaults().scanner);
+    attach_and_drop_hp(f, 1000);
+    f.session.step();                    // tick 1: press
+    f.clock.advance(50);
+    f.session.step();                    // window line 1
+    CHECK_EQ(f.sender.count(), 1);
+    CHECK_EQ(f.count(" held: "), 1);
+
+    f.ctl.enabled.store(false);
+    f.session.step();                    // detach (scanner disabled)
+    CHECK(phase_of(f.ctl) == Phase::ScannerOff);
+    f.ctl.enabled.store(true);
+    f.session.step();                    // attach the same live PID (caches kept)
+    REQUIRE(phase_of(f.ctl) == Phase::Attached);
+    f.session.step();                    // first tick after re-attach: fires, no arming
+    CHECK_EQ(f.sender.count(), 2);
+    CHECK_EQ(f.count(", key=1\n"), 2);
+    CHECK_EQ(f.count(" held: "), 1);     // the old window flag did NOT carry over
+
+    f.clock.advance(50);
+    f.session.step();                    // the new window gets its own line
+    CHECK_EQ(f.count(" held: "), 2);
 }
 
 TEST(session_independent_vital_timers_over_ticks) {
@@ -173,7 +222,7 @@ TEST(session_independent_vital_timers_over_ticks) {
 }
 
 TEST(session_debug_percent_rounds_half_even) {
-    // MINOR_ISSUES S3-5: the debug percent follows poe_scan.py's python round(), which
+    // Review S3-5 (fixed 2026-11-08): the debug percent follows poe_scan.py's python round(), which
     // is banker's rounding (ties to EVEN), not half-up. Health unreserved is 3888, so
     // current = 486 gives 48600/3888 = 12.5 exactly: the .5 tie. Python prints 12 (the
     // even neighbour); half-up printed 13. Pinned on BOTH debug lines, which share one

@@ -43,7 +43,7 @@ Tray::~Tray() {
         DestroyWindow(hwnd_);              // NIM_DELETE already ran; window teardown
     }
     if (class_registered_) {
-        // Balanced against RegisterClassW in create() (MINOR_ISSUES S2-4).
+        // Balanced against RegisterClassW in create() (review S2-4, fixed 2026-11-08).
         UnregisterClassW(kTrayWindowClass, host_.hInst);
         class_registered_ = false;
     }
@@ -97,7 +97,7 @@ LRESULT Tray::handle(UINT msg, WPARAM wp, LPARAM lp) {
             // WM_RBUTTONUP as well popped the menu twice per one right-click.
             const bool menu = (ev == WM_CONTEXTMENU);
             // Hover/left/double-click/no-op are debug: a hover burst is ~50 events and
-            // must not spam the info log (SPEC §7, MINOR_ISSUES S2-2).
+            // must not spam the info log (SPEC §7, review S2-2, fixed 2026-11-08).
             host_.logger.log(LogLevel::Debug, "tray callback event " + std::to_string(ev));
             if (menu) {
                 // Actionable: only this event is an info line (SPEC §7 info list).
@@ -186,7 +186,7 @@ bool Tray::add_icon() {
     v.uID = nid_.uID;
     v.uVersion = NOTIFYICON_VERSION_4;
     if (!Shell_NotifyIconW(NIM_SETVERSION, &v)) {
-        // MINOR_ISSUES S2-6: the icon works without v4 (short tooltip, classic event
+        // Review S2-6 (fixed 2026-11-08): the icon works without v4 (short tooltip, classic event
         // layout), so this is a warning, not a failure.
         host_.logger.log(LogLevel::Warn, "Shell_NotifyIcon NIM_SETVERSION(v4) failed - "
                                          "classic event layout and 63-char tooltip used");

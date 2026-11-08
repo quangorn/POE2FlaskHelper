@@ -1,4 +1,4 @@
-// Command-line flag matching (SPEC §2.3, MINOR_ISSUES S0-6): --version / --batch must
+// Command-line flag matching (SPEC §2.3, review S0-6, fixed 2026-11-08): --version / --batch must
 // be exact arguments, never a substring of the command line. Pure logic in poe2_core;
 // GetCommandLineW stays in main.cpp.
 #include "test.h"

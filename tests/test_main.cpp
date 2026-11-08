@@ -1,5 +1,5 @@
 // Framework self-checks + the version-header consistency test. ctest runs this as "unit".
-// The stage-0 core_stub tests are deleted (MINOR_ISSUES S5-1): poe2_core is exercised by
+// The stage-0 core_stub tests are deleted (review S5-1, fixed 2026-11-08): poe2_core is exercised by
 // the real module tests, and the version assertion compares the generated macros with
 // each other, never a literal "1.0.0" - a project(... VERSION) bump keeps this test green
 // (D2, merged into S5-1: proven by the scratch bump to 2.5.1, ctest green, zip named 2.5.1).

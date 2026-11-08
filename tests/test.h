@@ -2,7 +2,7 @@
 // Minimal test framework (plan.md §2): CHECK, CHECK_EQ, REQUIRE, registration,
 // report, exit code. No third-party frameworks.
 //
-// Registration robustness (MINOR_ISSUES S0-7): every test TU is compiled directly
+// Registration robustness (review S0-7, fixed 2026-11-08): every test TU is compiled directly
 // into the poe2_tests exe, NEVER into a static library. The linker links each
 // object file named on the command line, so the static registrars created by
 // TEST() are never dropped. Registration order across TUs is unspecified and
@@ -39,7 +39,7 @@ inline bool report(const char* what, int line, bool ok) {
     return false;
 }
 
-// CHECK_EQ failure prints lhs/rhs values for arithmetic types (MINOR_ISSUES S0-8);
+// CHECK_EQ failure prints lhs/rhs values for arithmetic types (review S0-8, fixed 2026-11-08);
 // non-arithmetic comparisons fall back to the generic message.
 template <typename A, typename B>
 void report_eq(const char* what, int line, const A& a, const B& b) {

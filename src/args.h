@@ -3,7 +3,7 @@
 // GetCommandLineW() in main.cpp (app layer); the splitting and matching here are pure
 // so they are testable. Matching is per argument: a substring of an argument or of a
 // path ("foo--version", "C:\dir\--version\app.exe") is NOT a flag
-// (MINOR_ISSUES S0-6 - the old wcsstr over the whole command line made it one).
+// (review S0-6, fixed 2026-11-08 - the old wcsstr over the whole command line made it one).
 
 #include <string>
 #include <vector>

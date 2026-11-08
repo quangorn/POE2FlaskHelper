@@ -69,7 +69,7 @@ int64_t* field(Offsets& o, const char* name) {
     if (s == "RageOff") return &o.RageOff;
     if (s == "BackPtrOff") return &o.BackPtrOff;
     if (s == "Score") return &o.Score;  // Score is a key like any other, not a fallback
-    // MINOR_ISSUES S1-7: the old code returned &o.Score for ANY unknown name.
+    // Review S1-7 (fixed 2026-11-08): the old code returned &o.Score for ANY unknown name.
     // field() is called only with kKeys names (the loop below), so this default is
     // unreachable; assert documents it and nullptr means "no field" for the caller.
     assert(false && "field() called with a name outside kKeys");

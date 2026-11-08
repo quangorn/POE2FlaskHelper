@@ -20,12 +20,12 @@ struct SystemClock : IClock {
 
     // Local zone offset for the log stamp (SPEC §7). GetDynamicTimeZoneInformation
     // gives the offset in effect right now (DST included); the logger takes it as a
-    // snapshot per line, so a DST switch is picked up by the next line - fine for MVP.
+    // snapshot per line, so a DST switch is picked up by the next line - fine for the app.
     int64_t tz_offset_ms() override {
         DYNAMIC_TIME_ZONE_INFORMATION tzi;
         const DWORD id = GetDynamicTimeZoneInformation(&tzi);
         if (id == TIME_ZONE_ID_INVALID) {
-            // S1-12: stamping UTC is the documented MVP behavior, and the failure is
+            // S1-12 (2026-11-08): stamping UTC is the documented behavior, and the failure is
             // recorded in a one-time flag - main.cpp logs it once after the logger
             // starts (no per-line logging, IClock stays pure, tests stay deterministic).
             tz_failed_ = true;

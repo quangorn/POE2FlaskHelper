@@ -4,7 +4,7 @@
 // touches (FakeProcess/FakeMemory/FakeClock/RecordingKeySender). No sleeps, no game, no UI.
 //
 // The point under test: start() creates the wake_ event once and stop() keeps it open
-// (MINOR_ISSUES S3-2 closes it only in ~Scanner), so the second start() reuses the same
+// (review S3-2, fixed 2026-11-08: closed only in ~Scanner), so the second start() reuses the same
 // event and the toggle wakes the restarted thread at once.
 //
 // GA-2 handle-count method (recorded in src/scanner.cpp): every sample is

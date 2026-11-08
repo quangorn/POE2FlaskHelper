@@ -1,4 +1,4 @@
-// Handle-count measurement method for the S3-2 wake-event fix (MINOR_ISSUES GA-2), so the
+// Handle-count measurement method for the wake-event fix (review GA-2 / S3-2, 2026-11-08), so the
 // "165 -> 154 handles" claim is reproducible. Sampler: GetProcessHandleCount(
 // GetCurrentProcess(), &n) - the live kernel-handle count, no external tool needed.
 // Sampling points (the GA-1 test tests/scanner_thread_tests.cpp runs exactly these, all
@@ -23,7 +23,7 @@ Scanner::Scanner(ScannerSession::Deps deps, ScannerCtl& ctl)
 
 Scanner::~Scanner() {
     stop();
-    // MINOR_ISSUES S3-2: the wake event is the thread's only OS handle. Close it after
+    // Review S3-2 (fixed 2026-11-08): the wake event is the thread's only OS handle. Close it after
     // the join, so a long-running process releases it instead of holding it to exit.
     if (wake_) {
         CloseHandle(wake_);
@@ -55,7 +55,7 @@ void Scanner::loop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(ms));
         }
     }
-    // MINOR_ISSUES S3-7: shutdown while attached must end with the detach info line.
+    // Review S3-7 (fixed 2026-11-08): shutdown while attached must end with the detach info line.
     // stop() clears enabled before the stop flag, so this final step takes the
     // detach path (SPEC §4.6: zero reads when the module is off) and logs
     // "detached from PID n (scanner disabled)" before the thread is joined.

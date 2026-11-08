@@ -135,7 +135,7 @@ TEST(chain_no_life_in_clu) {
 }
 
 TEST(chain_life_at_region_edge_without_nul_is_accepted) {
-    // MINOR_ISSUES S3-4: "Life" written at the very end of a committed region with NO
+    // Review S3-4 (fixed 2026-11-08): "Life" written at the very end of a committed region with NO
     // NUL after it. poe_scan.py read_cstring reads 16-byte chunks: the first chunk read
     // comes back short ("Life"), the next chunk read fails, and the assembled string is
     // "Life" -> the entry is accepted. The old C++ check (got >= 5 with name[4] == NUL)
@@ -316,7 +316,7 @@ TEST(tick_area_instance_zero) {
 }
 
 TEST(tick_reserved_flat_above_current_off_no_oob) {
-    // MINOR_ISSUES S3-1: an offsets.json where ReservedFlat > CurrentOff. The span
+    // Review S3-1 (fixed 2026-11-08): an offsets.json where ReservedFlat > CurrentOff. The span
     // must cover flat/percent/total/current of every Vital', so all field indices
     // b+Off-lo are inside [0, span): the values read back are the ones written, and
     // nothing reads past the span end (FakeMemory would report a short read).

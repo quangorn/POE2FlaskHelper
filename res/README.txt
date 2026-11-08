@@ -52,9 +52,16 @@ offsets.json - game offsets, mandatory. After a game patch the values stop match
   next to the exe.
 logs/app.log - UTF-8 log next to the exe, with rotation (logging.level,
   logging.maxSizeKb, logging.keepFiles in config.json). Start, exit, config warnings,
-  hotkey registration, attach/detach, Offsets mismatch are written to the log. The
+  hotkey registration, attach/detach, Offsets mismatch are written to the log. Every
+  flask key press is an info line ("Health 23% < 50%, key=1"), and so is the single
+  line of a cooldown window in which the value stayed below the threshold ("EnergyShield
+  80% < 80%, key=3 held: cooldown left 720 ms") - one such line per window, so you can
+  see that the key was held back. Per-tick Vital values stay debug-only: at
+  logging.level = info the log has presses and held lines, no value lines. The
   time zone lookup failure record (the log stamps fall back to UTC) is a debug line:
-  it appears in the log only when logging.level is debug.
+  it appears in the log only when logging.level is debug. At level debug, hovering the
+  tray icon writes a burst of "tray callback event 512" lines (WM_MOUSEMOVE): normal
+  noise, not a problem.
 
 Game run as administrator
 -------------------------
@@ -116,9 +123,15 @@ offsets.json - смещения игры, обязателен. После па�
   scanner/README.md) и положить новый файл рядом с exe.
 logs/app.log - лог в UTF-8 рядом с exe, с ротацией (logging.level,
   logging.maxSizeKb, logging.keepFiles в config.json). В лог пишутся старт, выход,
-  предупреждения конфига, регистрация хоткея, attach/detach, Offsets mismatch. Запись о
+  предупреждения конфига, регистрация хоткея, attach/detach, Offsets mismatch. Каждое
+  нажатие зелья — info-строка ("Health 23% < 50%, key=1"), и единственная строка окна
+  кулдауна, в котором значение оставалось ниже порога ("EnergyShield 80% < 80%, key=3
+  held: cooldown left 720 ms") — одна такая строка на окно, по ней видно, что клавиша
+  была задержана. Значения Vital'ов на каждом тике остаются только на debug: при
+  logging.level = info в логе есть нажатия и held-строки, но нет строк значений. Запись о
   сбое поиска часовой зоны (штампы тогда в UTC) — debug-строка: она видна в логе только
-  при logging.level = debug.
+  при logging.level = debug. При уровне debug наведение курсора на иконку трея пишет
+  пачку строк "tray callback event 512" (WM_MOUSEMOVE): это штатный шум, не проблема.
 
 Игра, запущенная от администратора
 ----------------------------------

@@ -4,7 +4,7 @@ namespace poe2 {
 
 int64_t reserved_amount(int64_t total, int64_t flat, int64_t pct) {
     if (total <= 0) return 0;
-    // MINOR_ISSUES S4-1 (parity note, entry kept as `leave`): poe_scan.py computes
+    // Review S4-1 (2026-11-08, parity note, no-action): poe_scan.py computes
     // int(pct / 10000 * total + flat + 0.999999), i.e. python's int() truncation toward
     // zero of a FLOAT. For the negative side that epsilon trick has no integer-exact
     // equivalent (the answer depends on double rounding), and every field is read as

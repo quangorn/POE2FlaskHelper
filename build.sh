@@ -104,7 +104,7 @@ STAGE="dist/POE2FlaskHelper-$VERSION-win64"
 rm -rf dist
 mkdir -p "$STAGE"
 cp "$EXE" "$STAGE/POE2FlaskHelper.exe"
-cp README.txt "$STAGE/README.txt"
+cp res/README.txt "$STAGE/README.txt"
 cp config.json "$STAGE/config.json"
 cp offsets.json "$STAGE/offsets.json"
 

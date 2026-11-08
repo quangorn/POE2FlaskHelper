@@ -54,7 +54,7 @@ struct ItemBlock {
     uint64_t details = 0, comp_first = 0, comp_last = 0, comp_end = 0;
 };
 
-// poe_scan.py read_cstring (MINOR_ISSUES S3-4): read 16-byte chunks forward from addr
+// poe_scan.py read_cstring (review S3-4, fixed 2026-11-08): read 16-byte chunks forward from addr
 // until a NUL byte or a read that returns nothing, and assemble the bytes between. The
 // python prototype therefore accepts a "Life" page that ends exactly at the committed
 // region edge with no visible NUL: its first chunk read comes back short ("Life"), the
@@ -180,7 +180,7 @@ FullChainResult full_chain(IMemoryReader& m, const Offsets& o, ChainCache& cache
     // (C) CurrentStatePtr: std::vector of 16-byte state entries, the current state is
     // the last element (poe_scan.py chain step C). Checked at attach; ticks read the
     // States array directly.
-    // STRICTER than poe_scan.py on purpose (MINOR_ISSUES S3-6): python only checks the
+    // STRICTER than poe_scan.py on purpose (review S3-6, fixed 2026-11-08): python only checks the
     // 24-byte read length, then takes *(Last - 0x10) as the current state and continues
     // even when the triple is malformed. The C++ chain validates the triple as a real
     // std::vector (non-null First, Last > First, End >= Last, and the element stride
@@ -370,8 +370,8 @@ TickResult tick(IMemoryReader& m, const Offsets& o, ChainCache& cache) {
 
     // Vital' fields: one block read covering all four fields of all 5 Vital'
     // structures inside Life (~10 reads on a tick in total). The span must cover
-    // min/max over TotalOff, CurrentOff, ReservedOff AND ReservedFlat (MINOR_ISSUES
-    // S3-1: an offsets.json with ReservedFlat > CurrentOff used to read past the
+    // min/max over TotalOff, CurrentOff, ReservedOff AND ReservedFlat (review
+    // S3-1, fixed 2026-11-08): an offsets.json with ReservedFlat > CurrentOff used to read past the
     // span end); every field index b+Off-lo is then inside [0, span).
     const int64_t fmin = std::min({o.TotalOff, o.CurrentOff, o.ReservedOff, o.ReservedFlat});
     const int64_t fmax = std::max({o.TotalOff, o.CurrentOff, o.ReservedOff, o.ReservedFlat});

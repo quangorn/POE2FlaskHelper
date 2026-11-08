@@ -7,7 +7,8 @@ namespace poe2 {
 
 std::vector<VitalAction> evaluate(const std::array<VitalVals, kVitalCount>& samples,
                                   const Config& cfg, bool foreground,
-                                  int64_t now_ms, VitalSendState& state) {
+                                  int64_t now_ms, VitalSendState& state,
+                                  std::vector<VitalWait>* waits) {
     std::vector<VitalAction> actions;
     if (!foreground) return actions;   // SPEC §4.8: keys only to the foreground game
     for (int i = 0; i < kVitalCount; ++i) {
@@ -21,11 +22,27 @@ std::vector<VitalAction> evaluate(const std::array<VitalVals, kVitalCount>& samp
         // Cooldown runs from the LAST SEND, not from the first below-threshold tick.
         if (state.last_send[i] != kNoSend &&
             now_ms - state.last_send[i] < d.cooldownMs) {
+            // SPEC §4.7 (amended 2026-11-08): below threshold, cooldown not elapsed.
+            // Reported as a VitalWait so the session can log it ONCE per window
+            // (state.held_logged is the window flag; armed by the next send below).
+            if (waits) {
+                VitalWait w;
+                w.vital = i;
+                w.key = d.key;                       // the config string, no parse needed
+                w.percent = percent_round(v.current, unres);   // same rounding as press_line
+                w.threshold = d.threshold;
+                w.remaining_ms = d.cooldownMs - (now_ms - state.last_send[i]);
+                w.first = !state.held_logged[i];
+                state.held_logged[i] = true;
+                waits->push_back(w);
+            }
             continue;
         }
         const KeyResult kr = parse_key(d.key);   // config validation enforces a plain key
         if (!kr.ok) continue;                    // defensive: never with a validated config
         state.last_send[i] = now_ms;             // the timer restarts at this send
+        state.held_logged[i] = false;            // SPEC §4.7 amendment: the window closes,
+                                                 // the next window gets one info line
         VitalAction a;
         a.vital = i;
         a.key = d.key;

@@ -57,7 +57,7 @@ def walk(node, path):
         if did & 0x80000000:
             # Named entry: the high bit marks a name, the low 16 bits (key & 0xFFFF) are
             # the offset of the name string from the Resource Directory base - NOT doff,
-            # which is the child offset (MINOR_ISSUES D1: WAV leaves printed type '').
+            # which is the child offset (review D1, fixed 2026-11-08: WAV leaves printed type '').
             p = base + (did & 0xFFFF)
             ln = u(p, 2)
             item = data[p + 2:p + 2 + 2 * ln].decode("utf-16")

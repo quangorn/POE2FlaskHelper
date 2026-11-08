@@ -71,7 +71,7 @@ TEST(threshold_comparison_no_rounding) {
 }
 
 TEST(percent_round_half_even) {
-    // MINOR_ISSUES S3-5: the debug percent matches python round() - nearest integer,
+    // Review S3-5 (fixed 2026-11-08): the debug percent matches python round() - nearest integer,
     // ties to EVEN. Integer-exact, no float.
     // Exact .5 ties: the even neighbour wins (half-up would print one higher).
     CHECK_EQ(percent_round(1, 40), 2);      // 100*1/40 = 2.5  -> 2 (even), half-up: 3
@@ -96,7 +96,7 @@ TEST(percent_round_half_even) {
 }
 
 TEST(reserved_negative_flat_is_clamped_defensive) {
-    // MINOR_ISSUES S4-1 (entry kept as `leave`): a live tick reads every Vital' field as
+    // Review S4-1 (2026-11-08, no-action): a live tick reads every Vital' field as
     // u32, so flat/pct/total are never negative. The clamp below is defensive; python
     // int(x + 0.999999) truncates toward zero on the same input (-99 for flat -100),
     // which the integer-exact ceil cannot reproduce without float. Pinned so the choice

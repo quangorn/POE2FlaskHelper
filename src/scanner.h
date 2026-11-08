@@ -47,7 +47,7 @@ private:
     ScannerCtl& ctl_;
     std::thread thread_;
     // The event is created on the first start() and closed in ~Scanner() after the
-    // join (MINOR_ISSUES S3-2): no OS handle leaks out of the app.
+    // join (review S3-2, fixed 2026-11-08): no OS handle leaks out of the app.
     HANDLE wake_ = nullptr;   // auto-reset event: toggle/stop wakes the poll timeout
     std::atomic<bool> running_{false};
 };

@@ -40,7 +40,7 @@
 
 // SPEC §2.3 flags are matched on the split command line, never as a substring of the
 // whole line: an argument like foo--version must not start the version mode
-// (MINOR_ISSUES S0-6). Splitting/matching lives in poe2_core (tests/args_tests.cpp);
+// (review S0-6, fixed 2026-11-08). Splitting/matching lives in poe2_core (tests/args_tests.cpp);
 // GetCommandLineW is the only Win32 call here.
 static bool has_flag(const wchar_t* flag) {
     return poe2::match_flag(GetCommandLineW(), flag);

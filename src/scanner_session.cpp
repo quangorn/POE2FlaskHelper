@@ -51,10 +51,19 @@ std::string phase_name(Phase p) {
     }
 }
 
-// SPEC §7 debug press line, exact format: "Health 23% < 50%, key=1".
+// SPEC §7 info press line, exact format: "Health 23% < 50%, key=1".
 std::string press_line(const VitalAction& a) {
     return std::string(kVitalNames[a.vital]) + " " + std::to_string(a.percent) +
            "% < " + std::to_string(a.threshold) + "%, key=" + a.key;
+}
+
+// SPEC §7 (amended 2026-11-08): the ONE info line of a cooldown window where a Vital
+// stayed below the threshold. Distinguishable from the press line by the " held:" tail,
+// so tests count press lines as ", key=N\n" and held lines as " held: ".
+std::string held_line(const VitalWait& w) {
+    return std::string(kVitalNames[w.vital]) + " " + std::to_string(w.percent) +
+           "% < " + std::to_string(w.threshold) + "%, key=" + w.key +
+           " held: cooldown left " + std::to_string(w.remaining_ms) + " ms";
 }
 
 }  // namespace
@@ -94,6 +103,11 @@ void ScannerSession::detach_info(const std::string& reason) {
                                   " (" + reason + ")");
     reader_.reset();
     pid_ = 0;
+    // SPEC §4.7 (amended 2026-11-08): the cooldown timers and the one-line-per-window
+    // flags are per-session. A detach closes them: the new attach starts fresh, so the
+    // "one held line per window" counting never carries over from a previous session,
+    // and SPEC §4.7's no-arming rule (fire on the first tick after attach) holds.
+    vitals_state_ = VitalSendState{};
 }
 
 void ScannerSession::attach_step() {
@@ -173,12 +187,19 @@ void ScannerSession::tick_step() {
         // IProcessProvider. Invalid values never reach evaluate (tick !ok below).
         const bool fg = !deps_.cfg.requireGameForeground ||
                         deps_.proc.is_foreground(pid_);
+        std::vector<VitalWait> waits;
         const std::vector<VitalAction> actions =
-            evaluate(t.vals, deps_.full, fg, deps_.clock.now_ms(), vitals_state_);
+            evaluate(t.vals, deps_.full, fg, deps_.clock.now_ms(), vitals_state_, &waits);
         for (const VitalAction& a : actions) {
             deps_.sender.press(a.vk, a.extended);
-            // SPEC §7: each press is a debug line; nothing of this appears at info.
-            deps_.log.log(LogLevel::Debug, press_line(a));
+            // SPEC §7 (amended 2026-11-08): each press is an INFO line (live tests read
+            // the log at the default level, so presses must be visible there).
+            deps_.log.log(LogLevel::Info, press_line(a));
+        }
+        for (const VitalWait& w : waits) {
+            // One info line per Vital per cooldown window: evaluate() marks exactly one
+            // record of each window with first=true.
+            if (w.first) deps_.log.log(LogLevel::Info, held_line(w));
         }
         return;
     }

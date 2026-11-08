@@ -10,7 +10,7 @@ namespace poe2 {
 // total == 0 -> 0 reserved (poe_scan.py "if total else 0").
 // Integer-exact ceil: matches the python int(x + 0.999999) for every u32 input,
 // without floating point (total * pct fits in int64: 4.29e9 * 1e4 < 1e14).
-// MINOR_ISSUES S4-1 (entry kept as `leave`): the int64 signature also accepts negative
+// Review S4-1 (2026-11-08, no-action): the int64 signature also accepts negative
 // total/pct/flat, which poe_scan.py (u32 reads, int() truncation toward zero) has no
 // equivalent for; the C++ clamps them to 0 defensively. A live tick never produces a
 // negative field (chain.cpp reads u32), so the divergence is unreachable - pinned by

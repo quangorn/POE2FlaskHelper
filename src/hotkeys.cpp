@@ -6,7 +6,7 @@ namespace poe2 {
 // (the values keys.cpp parses for RegisterHotKey).
 bool register_toggle_hotkey(HWND hwnd, const Hotkey& hk) {
     // MOD_NOREPEAT (0x4000): holding Ctrl+9 down must deliver ONE WM_HOTKEY, not a
-    // key-repeat stream of toggles + WAVs (MINOR_ISSUES S2-3).
+    // key-repeat stream of toggles + WAVs (review S2-3, fixed 2026-11-08).
     constexpr uint32_t kModNoRepeat = 0x4000;
     return RegisterHotKey(hwnd, static_cast<int>(kToggleHotkeyId),
                           static_cast<UINT>(hk.mods | kModNoRepeat),

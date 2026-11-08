@@ -3,7 +3,10 @@
 // repeat exactly at cooldownMs, independent per-Vital timers, enabled:false,
 // multiple vitals on one tick, foreground gate, no duplicate press without a new
 // tick, reserved percent-of-unreserved path, Ward/Rage, first tick without arming,
-// u32 overflow safety. Everything is pure core code, deterministic, no sleeps.
+// u32 overflow safety, and the SPEC §4.7 (amended 2026-11-08) held-by-cooldown
+// report: one line per window, armed by the send, per-Vital flags, no report without
+// foreground / enabled / unreserved / before the first send, cooldownMs=0, and the
+// optional waits parameter. Everything is pure core code, deterministic, no sleeps.
 #include "test.h"
 
 #include <array>
@@ -21,6 +24,7 @@ using poe2::TickResult;
 using poe2::VitalAction;
 using poe2::VitalSendState;
 using poe2::VitalVals;
+using poe2::VitalWait;
 using poe2::kEnergyShield;
 using poe2::kHealth;
 using poe2::kMana;
@@ -60,6 +64,23 @@ RecordingKeySender make_keys(FakeClock& c) {
     RecordingKeySender k;
     k.clock = &c;
     return k;
+}
+
+// The session dispatch WITH the held report collected (SPEC §4.7 amended 2026-11-08):
+// presses go to the sender, every below-threshold-inside-cooldown Vital lands in waits,
+// so a test sees exactly which line the session would log (waits[i].first).
+void dispatch_waits(const std::array<VitalVals, kVitalCount>& s, const Config& cfg,
+                    bool fg, int64_t now, VitalSendState& st, RecordingKeySender& keys,
+                    std::vector<VitalWait>& waits) {
+    const std::vector<VitalAction> acts = evaluate(s, cfg, fg, now, st, &waits);
+    for (const VitalAction& a : acts) keys.press(a.vk, a.extended);
+}
+
+// Count the held lines the session would log (first=true records) over the calls so far.
+int count_first(const std::vector<VitalWait>& w) {
+    int n = 0;
+    for (const VitalWait& x : w) if (x.first) ++n;
+    return n;
 }
 
 }  // namespace
@@ -327,4 +348,222 @@ TEST(vital_large_u32_values_overflow_safe) {
     const auto acts = evaluate(s, cfg, true, 5000, st);
     REQUIRE(acts.size() == 1);
     CHECK_EQ(acts[0].percent, 0);   // integer display percent rounds to 0
+}
+
+TEST(vital_held_line_once_per_cooldown_window) {
+    // SPEC §4.7 amendment: below threshold inside the cooldown => one VitalWait per
+    // tick, exactly ONE of them (the first of the window) is marked for logging.
+    Config cfg = poe2::config_defaults();   // Health: threshold 50, cooldownMs 1000
+    auto s = quiet_samples();
+    s[kHealth].current = 1000;              // below 50% of unreserved 3888
+    VitalSendState st;
+    FakeClock clock;
+    clock.set(10000);
+    RecordingKeySender keys = make_keys(clock);
+    std::vector<VitalWait> w;
+
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);   // t=10000: fires
+    CHECK_EQ(keys.count(), 1);
+    CHECK(w.empty());                       // first send: no window, no held record
+    CHECK_EQ(st.held_logged[kHealth], false);
+
+    clock.advance(200);                      // 200 < 1000: held, the window's ONE line
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    CHECK_EQ(keys.count(), 1);
+    REQUIRE(w.size() == 1);
+    CHECK_EQ(w[0].vital, kHealth);
+    CHECK_EQ(w[0].key, "1");
+    CHECK_EQ(w[0].percent, 26);             // display percent, half-even as press_line
+    CHECK_EQ(w[0].threshold, 50);
+    CHECK_EQ(w[0].remaining_ms, 800);
+    CHECK_EQ(w[0].first, true);
+    CHECK_EQ(st.held_logged[kHealth], true);
+
+    w.clear();
+    clock.advance(200);                      // same window: reported, NOT logged again
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    REQUIRE(w.size() == 1);
+    CHECK_EQ(w[0].remaining_ms, 600);
+    CHECK_EQ(w[0].first, false);
+
+    w.clear();
+    clock.advance(600);                      // exactly 1000 ms: the send closes the window
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    CHECK_EQ(keys.count(), 2);
+    CHECK_EQ(keys.recs[1].t, 11000);
+    CHECK(w.empty());
+    CHECK_EQ(st.held_logged[kHealth], false);   // re-armed by this send
+
+    w.clear();
+    clock.advance(100);                      // new window: one line again
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    REQUIRE(w.size() == 1);
+    CHECK_EQ(w[0].remaining_ms, 900);
+    CHECK_EQ(w[0].first, true);
+}
+
+TEST(vital_held_window_flag_survives_a_tick_above_threshold) {
+    // The window is one line. Value leaves the window (above threshold), comes back in
+    // the SAME window: the line is already spent, so the return stays silent.
+    Config cfg = poe2::config_defaults();
+    auto s = quiet_samples();
+    s[kHealth].current = 1000;
+    VitalSendState st;
+    FakeClock clock;
+    clock.set(10000);
+    RecordingKeySender keys = make_keys(clock);
+    std::vector<VitalWait> w;
+
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);   // fires at t=10000
+    clock.advance(200);
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);   // window line spent
+    REQUIRE(count_first(w) == 1);
+
+    w.clear();
+    s[kHealth].current = 4000;               // above threshold: no action, no held record
+    clock.advance(100);                      // t=10300
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    CHECK(w.empty());
+    CHECK_EQ(st.held_logged[kHealth], true);  // the window flag is NOT reset by an above-threshold tick
+
+    w.clear();
+    s[kHealth].current = 1000;               // back below inside the same window (700 ms left)
+    clock.advance(100);                      // t=10400
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    REQUIRE(w.size() == 1);
+    CHECK_EQ(w[0].first, false);             // silent: the window already had its line
+    CHECK_EQ(count_first(w), 0);
+}
+
+TEST(vital_held_per_vital_flags_are_independent) {
+    // Health and Mana each have their own window: each logs its own one line, and a
+    // send of one Vital re-arms only that Vital's flag.
+    Config cfg = poe2::config_defaults();
+    auto s = quiet_samples();
+    s[kHealth].current = 1000;
+    s[kMana].current = 100;                  // below 40% of unreserved 1500
+    VitalSendState st;
+    FakeClock clock;
+    clock.set(0);
+    RecordingKeySender keys = make_keys(clock);
+    std::vector<VitalWait> w;
+
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);   // both fire on t=0
+    CHECK_EQ(keys.count(), 2);
+    CHECK(w.empty());
+
+    clock.advance(100);
+    w.clear();
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);   // both held
+    REQUIRE(w.size() == 2);
+    CHECK_EQ(count_first(w), 2);             // each Vital gets its own single line
+    CHECK_EQ(w[0].vital, kHealth);
+    CHECK_EQ(w[1].vital, kMana);
+
+    w.clear();
+    clock.advance(100);
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    CHECK_EQ(count_first(w), 0);             // second tick in both windows: silent
+
+    w.clear();
+    clock.advance(800);                      // t=1000: both cooldowns elapsed -> sends
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    CHECK_EQ(keys.count(), 4);
+    CHECK(w.empty());
+    CHECK_EQ(st.held_logged[kHealth], false);
+    CHECK_EQ(st.held_logged[kMana], false);
+}
+
+TEST(vital_held_nothing_without_foreground) {
+    // SPEC §4.8 gate first: no actions AND no held records, flags untouched.
+    Config cfg = poe2::config_defaults();
+    auto s = quiet_samples();
+    s[kHealth].current = 1000;
+    VitalSendState st;
+    FakeClock clock;
+    clock.set(0);
+    RecordingKeySender keys = make_keys(clock);
+    std::vector<VitalWait> w;
+
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);   // fire at t=0
+    clock.advance(100);
+    w.clear();
+    dispatch_waits(s, cfg, false, clock.now_ms(), st, keys, w);  // game in background
+    CHECK(w.empty());
+    CHECK_EQ(keys.count(), 1);
+    CHECK_EQ(st.held_logged[kHealth], false);   // no window opened without foreground
+}
+
+TEST(vital_held_skipped_for_disabled_and_empty_pools) {
+    // The same gates as the presses: enabled:false and unreserved <= 0 produce no
+    // held record even inside a cooldown window, and a Vital that never sent has no
+    // window at all (kNoSend).
+    Config cfg = poe2::config_defaults();
+    auto s = quiet_samples();
+    VitalSendState st;
+    FakeClock clock;
+    clock.set(0);
+    RecordingKeySender keys = make_keys(clock);
+    std::vector<VitalWait> w;
+
+    s[kHealth].current = 1000;               // fires at t=0, opening a window
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    CHECK_EQ(keys.count(), 1);
+
+    s[kEnergyShield].current = 1;            // far below, enabled:false
+    s[kWard] = VitalVals{100, 1, 200, 0};     // reserved 200 > total -> unreserved <= 0
+    cfg.vitals[kWard].enabled = true;
+    s[kHealth].total = 100; s[kHealth].flat = 200;   // Health pool empties too
+    w.clear();
+    clock.advance(100);
+    dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+    CHECK_EQ(keys.count(), 1);
+    CHECK(w.empty());                        // no record: gates run before the cooldown
+    CHECK_EQ(st.held_logged[kEnergyShield], false);
+    CHECK_EQ(st.held_logged[kWard], false);
+    CHECK_EQ(st.held_logged[kHealth], false);   // pool gate: the window is not touched
+}
+
+TEST(vital_waits_parameter_is_optional) {
+    // Pre-amendment call sites (waits omitted) keep compiling, and do NOT consume the
+    // one-line right: the flag is only set when a record is actually produced.
+    Config cfg = poe2::config_defaults();
+    auto s = quiet_samples();
+    s[kHealth].current = 1000;
+    VitalSendState st;
+    FakeClock clock;
+    clock.set(0);
+    RecordingKeySender keys = make_keys(clock);
+
+    dispatch(s, cfg, true, clock.now_ms(), st, keys);            // fires at t=0
+    clock.advance(100);
+    CHECK(evaluate(s, cfg, true, clock.now_ms(), st).empty());   // no waits: no record
+    CHECK_EQ(st.held_logged[kHealth], false);
+
+    std::vector<VitalWait> w;
+    const std::vector<VitalAction> acts =
+        evaluate(s, cfg, true, clock.now_ms(), st, &w);          // same tick, with waits
+    CHECK(acts.empty());
+    REQUIRE(w.size() == 1);
+    CHECK_EQ(w[0].first, true);              // the right was NOT consumed by the nullptr call
+}
+
+TEST(vital_held_never_with_zero_cooldown) {
+    // cooldownMs 0 (config allows it): the cooldown condition is never true, so every
+    // below-threshold tick sends and no held record exists.
+    Config cfg = poe2::config_defaults();
+    cfg.vitals[kHealth].cooldownMs = 0;
+    auto s = quiet_samples();
+    s[kHealth].current = 1000;
+    VitalSendState st;
+    FakeClock clock;
+    RecordingKeySender keys = make_keys(clock);
+    std::vector<VitalWait> w;
+
+    for (int i = 0; i < 4; ++i) {
+        w.clear();
+        dispatch_waits(s, cfg, true, clock.now_ms(), st, keys, w);
+        CHECK(w.empty());
+    }
+    CHECK_EQ(keys.count(), 4);
 }

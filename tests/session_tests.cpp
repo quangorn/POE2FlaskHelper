@@ -283,7 +283,7 @@ TEST(scanner_disable_mid_reading_stops_all_reads) {
 }
 
 TEST(shutdown_while_attached_logs_detach) {
-    // MINOR_ISSUES S3-7: Scanner::stop() clears enabled BEFORE setting stop + waking,
+    // Review S3-7 (fixed 2026-11-08): Scanner::stop() clears enabled BEFORE setting stop + waking,
     // and the loop runs one final step() after the stop flag. That final step must
     // take the detach path and log the line. This test drives exactly that order on
     // the session: enabled=false, stop=true, then the last step.

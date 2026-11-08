@@ -111,7 +111,7 @@ struct Parser {
                     uint32_t cp = unit;
                     if (unit >= 0xDC00 && unit <= 0xDFFF) {
                         // Lone LOW surrogate: rejected symmetrically with the lone high
-                        // one (MINOR_ISSUES S1-1). Accepting it used to emit CESU-8 bytes
+                        // one (review S1-1, fixed 2026-11-08). Accepting it used to emit CESU-8 bytes
                         // (ed b0 80 for \udc00) - not valid UTF-8, so no append at all.
                         fail("lone surrogate escape");
                         return false;

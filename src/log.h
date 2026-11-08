@@ -26,7 +26,7 @@ bool level_from_string(const std::string& s, LogLevel& out);
 // without a file): 2026-11-07 12:34:56.789 [info] message
 // The stamp is LOCAL time, not UTC (SPEC §7): tz_offset_ms is the zone offset from
 // UTC in ms (+3h = 10800000, negative west of UTC), taken as a fixed snapshot for
-// this line - DST changes land on the next line, which is enough for MVP. Stamps
+// this line - DST changes land on the next line, which is enough for the app. Stamps
 // below the epoch clamp to the epoch.
 std::string format_log_line(int64_t ms, LogLevel lvl, const std::string& msg,
                             int64_t tz_offset_ms);

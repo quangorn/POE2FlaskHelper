@@ -13,7 +13,7 @@ struct IClock {
     // Offset of the local time zone from UTC in milliseconds (MSK +3h = 10800000,
     // zones west of UTC are negative). Log lines are stamped with local time
     // (SPEC §7): local_ms = now_ms() + tz_offset_ms(). The offset is read per line
-    // (a fixed snapshot for the line being formatted is enough for MVP - a DST change
+    // (a fixed snapshot for the line being formatted is enough for the app - a DST change
     // shows up on the next line), so tests can pin it explicitly.
     virtual int64_t tz_offset_ms() = 0;
 };
