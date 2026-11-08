@@ -8,6 +8,8 @@ startup-enable), §9 (критерий 12). Дополнено 2026-11-08 (minor
 при level=debug, BR-3). Дополнено 2026-11-08 (live-тесты, группа L1): §4.7 и §7 —
 press-строка и единственная held-строка окна кулдауна пишутся на info, §9 критерий 8;
 §2.3 и §3 — `README.txt` перенесён в `res/`.
+Дополнено 2026-11-08 (версионирование): §2.2 (версионные гейты, README из .in),
+§2.4 (новая — формат номера, правила, version.sh и гейт), §3 (дерево), §9 (критерий 14).
 
 ## 1. Назначение и границы
 
@@ -69,20 +71,36 @@ press-строка и единственная held-строка окна кул
 3. В том же cmd: добавляет VS-cmake и ninja в `PATH`, выполняет
    `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release` и
    `cmake --build build`.
-4. Strip: `strip --strip-all` по exe, затем проверка целостности PE и запуск
+4. Guard python (S0-1, перенесён выше 2026-11-08 — версии-гейты тоже на python): нет
+   python в PATH → FATAL до упаковки.
+5. Версионные гейты (SPEC §2.4, добавлено 2026-11-08), перед packaging:
+   - `build/version.txt` равен контракту `project(... VERSION x.y.z ...)` из
+     `CMakeLists.txt`;
+   - `./version.sh check` — согласованность «код ↔ версия» по закоммиченной истории
+     (красых → packaging не происходит);
+   - stdout `POE2FlaskHelper.exe --version` = ровно `POE2FlaskHelper <version>`
+     (пустой stdout — предупреждение: `print_version` печатает только при успешном
+     `AttachConsole`, §2.3);
+   - `python research/pe_res_check.py "$EXE" "$VERSION"` — VERSIONINFO и манифест
+     носят ту же версию.
+6. Strip: `strip --strip-all` по exe, затем проверка целостности PE и запуск
    `POE2FlaskHelper.exe --version` (код возврата 0). Если strip недоступен или
    проверка не прошла — предупреждение и сборка без strip.
-5. Упаковка: `dist/POE2FlaskHelper-<version>-win64/` = `POE2FlaskHelper.exe`,
+7. `ctest` (красых останавливает сборку до упаковки, критерий §9-12).
+8. Упаковка: `dist/POE2FlaskHelper-<version>-win64/` = `POE2FlaskHelper.exe`,
    `config.json`, `offsets.json`, `README.txt`; zip-архив
    `dist/POE2FlaskHelper-<version>-win64.zip`. Только zip, 7z не используется.
    Изменено 2026-11-08 (minors группа E1, R5-5): перед созданием zip упакованный exe
    запускается из временной копии staged-каталога и закрывается documented-хуком
    `FindWindowW` + `PostMessageW(WM_CLOSE)` (src/tray.h) — полный запуск и чистый выход
    с кодом 0, критерий §9-2; красых случаев zip не создаётся.
+   Изменено 2026-11-08 (версионирование): `README.txt` в staged-каталоге —
+   сгенерированный `build/README.txt` (§2.3), а не статический файл из `res/`.
 
 Версия берётся из `project(... VERSION ...)` и попадает в VERSIONINFO, манифест
-(`assemblyIdentity`, генерируется из `res/app.manifest.in`) и имя архива
-(через сгенерированные `build/version.txt` и `build/app.manifest`).
+(`assemblyIdentity`, генерируется из `res/app.manifest.in`), генерируемый
+`README.txt` (§2.3) и имя архива (через сгенерированные `build/version.txt` и
+`build/app.manifest`). Правило подъёма номера — §2.4.
 
 ### 2.3 `README.txt` в архиве
 
@@ -90,12 +108,64 @@ press-строка и единственная held-строка окна кул
 `build.sh` копирует его в корень архива; содержимое и состав архива не меняются.
 Лог: press-строка и единственная held-строка окна кулдауна описаны как info (§4.7, §7),
 добавлено замечание про debug-шум наведения на иконку (`tray callback event 512`).
+Изменено 2026-11-08 (версионирование): источник — `res/README.txt.in` c
+`@PROJECT_VERSION@`, `configure_file` создаёт `build/README.txt` (NEWLINE_STYLE CRLF),
+`build.sh` копирует в корень архива сгенерированный файл. Версия в пользовательском
+документе не может разойтись с `project(... VERSION)` (мера против хардкода `1.0.0`);
+текст и состав архива не меняются. Проверено: побайтовый diff `.in` c подстановкой
+версии и HEAD-версии файла совпадает, генерированный README в zip — тот же текст
+(152 CRLF-строки), §9-11.
 
 Один файл, двуязычный: сначала English, затем Russian. Содержание: запуск, статус
 в трее, где лежат `config.json`, `offsets.json` и лог, что делать при
 `Offsets mismatch`, требование VC++ v14 x64 Redistributable. Изменено 2026-11-08:
 добавлено требование прав запуска — если игра запущена от администратора, хелпер
 запускается с теми же правами (риск §5.1 плана, UIPI).
+
+### 2.4 Версионирование (добавлено 2026-11-08)
+
+Формат — `1.major.minor`: ведущая цифра — серия (всегда `1`), `major` — фича,
+`minor` — фикс. Правила:
+
+- **major** при добавлении новых пользовательских фич (`1.1.0 -> 1.2.0`, последняя
+  цифра сбрасывается);
+- **minor** при фиксах багов и небольших изменениях (`1.1.0 -> 1.1.1`);
+- **серия** (`1.x.y -> 2.0.0`) — только существенная переработка архитектуры;
+- **версия не поднимается, если код проекта не менялся** (exe актуален). Код проекта =
+  `src/` и `res/` ассеты/rc/manifest, то есть всё, что линкуется в exe. Не поднимают
+  версию: `tests/`, документация (`SPEC.md`, `plan.md`, `backlog.md`, `README.md`,
+  `CHANGELOG.md`, `res/README.txt.in`), `research/`, `scanner/`, `build.sh`,
+  `version.sh`, `config.json`, `offsets.json`, `res/gen_assets.py`.
+
+Единственный источник номера — `project(POE2FlaskHelper VERSION x.y.z LANGUAGES CXX RC)`
+в `CMakeLists.txt` (§2.2); его форма — контракт, который правит только `version.sh`.
+История версий — `CHANGELOG.md` (записи newest-first: версия, дата, класс, что вошло).
+Git-тегов нет; якорь «последний подъём» вычисляется по истории `CMakeLists.txt`.
+
+Процедура (`version.sh`, cygwin bash):
+
+```
+./version.sh major "описание фичи"      # 1.1.0 -> 1.2.0
+./version.sh minor "описание фикса"     # 1.1.0 -> 1.1.1
+./version.sh series "описание"          # смена серии; правило 3 действует и здесь
+./version.sh check                      # гейт для build.sh
+```
+
+`version.sh` правит `CMakeLists.txt` и `CHANGELOG.md`, никогда не коммитит; описание из
+второго аргумента идёт в запись CHANGELOG. Проверки: git-репозиторий и HEAD, контрактная
+форма строки версии, чистые `CMakeLists.txt`/`CHANGELOG.md`, правило 3 (код менялся от
+последнего подъёма до HEAD; исключение — documented-`--force`).
+
+Гейт `check` перед packaging (красых = zip не создаётся):
+
+1. код менялся после последнего подъёма версии, а версия не поднята → FATAL;
+2. версия поднята без изменений кода между подъёмами (`src/` + `res/`) → FATAL;
+3. незакоммиченные правки кода → предупреждение (гейт смотрит закоммиченное);
+4. первый релиз / история без подъёмов → предупреждение, гейт пропускается: полная
+   строгость включается со первого подъёма после `1.0.0`.
+
+Историческая запись: весь MVP (этапы 0–5 плана + live-тесты L1/M1) выпущен как `1.0.0`
+(CHANGELOG). Строгость гейта включается со следующего подъёма.
 
 ## 3. Структура проекта
 
@@ -107,9 +177,11 @@ press-строка и единственная held-строка окна кул
 ассетов, `build.sh` копирует его в корень zip); `MINOR_ISSUES.md` удалён — список
 закрыт, оставшиеся записи живут как комментарии кода/тестов с историческим ID и датой
 (`review S… , 2026-11-08`), сам файл доступен в истории git.
+Изменено 2026-11-08 (версионирование, §2.4): в дерево добавлены `version.sh` и `CHANGELOG.md`;
+пользовательский документ — `res/README.txt.in` (версия подставляется configure_file).
 
 ```
-build.sh  CMakeLists.txt  README.md  SPEC.md  plan.md  backlog.md
+build.sh  version.sh  CHANGELOG.md  CMakeLists.txt  README.md  SPEC.md  plan.md  backlog.md
 статическая библиотека poe2_core (общая для exe и тестов; чистая логика, интерфейсы §3.1):
 src/json.{h,cpp}       разбор/сериализация
 src/config.{h,cpp}     схема, валидация, значения по умолчанию
@@ -140,8 +212,9 @@ src/mem/             reader.h (IMemoryReader, IMemoryReaderFactory) + win_reader
 src/system_clock.h   реализация IClock
 src/res_ids.h        общие id ресурсов (app.rc, C++, тесты)
 res/app.ico res/app.rc res/app.manifest.in res/enable.wav res/disable.wav
-res/README.txt  пользовательский двуязычный документ (§2.3): лежит в res/, копируется
-        в корень zip (build.sh);
+res/README.txt.in  пользовательский двуязычный документ (§2.3): лежит в res/, `configure_file` создаёт из него
+         `build/README.txt` с версией проекта (§2.2), в корень zip копируется
+         сгенерированный файл (build.sh);
 res/version.h.in res/res_paths.rc.in  входы configure_file: build/version.h,
         build/res_paths.rc, build/app.manifest (SPEC §2.2 — версия в VERSIONINFO,
         манифест и имя архива);
@@ -459,3 +532,8 @@ detach (выключение сканера, разрыв цепочки) зак
     `attached PID` и `detached from` — не больше одной строки на процесс, строк
     `chain lost` и `waiting for game` нет, `OpenProcess` ровно один, на шаг меню
     приходится ~3 чтения памяти (§4.6 п.5, §7).
+14. Изменено 2026-11-08 (версионирование, §2.4): номер живёт в одном месте —
+    `project(... VERSION)`, `POE2FlaskHelper.exe --version` печатает ровно его, VERSIONINFO,
+    манифест и имя zip носят ту же версию (`research/pe_res_check.py` в build.sh); README
+    в архиве генерируется с той же версией; `build.sh` не пакует при нарушении
+    согласованности «код <-> версия» (правила и гейт — §2.4).

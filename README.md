@@ -10,8 +10,12 @@
   трея и сканера, критерии приёмки.
 - [`plan.md`](plan.md) — план этапов реализации.
 - [`backlog.md`](backlog.md) — что отложено (окно настройки конфига, громкость WAV).
-- [`res/README.txt`](res/README.txt) — пользовательский двуязычный документ (English +
-  Russian); `build.sh` копирует его в корень архива.
+- [`CHANGELOG.md`](CHANGELOG.md) — история версий и правила подъёма (`1.major.minor`).
+- [`version.sh`](version.sh) — подъём версии (`major`/`minor`/`series`) и гейт
+  согласованности «код ↔ версия» для `build.sh` (SPEC §2.4).
+- [`res/README.txt`](res/README.txt.in) — пользовательский двуязычный документ (English +
+  Russian); `configure_file` подставляет в него версию проекта, `build.sh` копирует
+  сгенерированный файл в корень архива.
 - [`src/`](src) — код: чистое ядро `poe2_core` (json, config, offsets, log, state, keys,
   signature, chain, vital_math, vitals, scanner_session, clock) и exe-слой со всем Win32
   (main, tray, hotkeys, sound, scanner, game_process, win_keys, mem/, system_clock,
@@ -22,7 +26,7 @@
   Win32-вызовов и без sleep.
 - [`res/`](res) — ассеты: `app.ico`, `enable.wav`, `disable.wav` (финальные, PCM16),
   `app.rc`, `app.manifest.in`, `version.h.in`, `res_paths.rc.in`, `gen_assets.py`,
-  `README.txt`.
+  `README.txt.in`.
 - [`scanner/`](scanner/README.md) — работа с живым процессом: чтение значений по
   цепочке смещений (`poe_scan.py`), поиск смещений HP/Mana/ES (`find_offsets.py`) и
   новых Vital'ов Ward/Rage/… (`find_vital.py`). Только чтение.
@@ -35,7 +39,8 @@
 
 ## Сборка и тесты
 
-`./build.sh` (cygwin bash): vcvars64 → VS cmake/ninja → Release → strip + целостность →
+`./build.sh` (cygwin bash): vcvars64 → VS cmake/ninja → Release → версионные гейты
+(SPEC §2.4: `./version.sh check`, stdout `--version`, PE-ресурсы) → strip + целостность →
 `ctest` (красные тесты останавливают сборку до упаковки) → dist zip
 `dist/POE2FlaskHelper-<version>-win64.zip` (exe + `config.json` + `offsets.json` +
 `README.txt`) и smoke-запуск staged-копии.
@@ -43,6 +48,30 @@
 Сборка требует Visual Studio 2022 с компонентом «CMake tools for Windows» (cmake + ninja
 из установки VS) и python в PATH (gate состава zip). Сборку не гоняй при запущенном
 `POE2FlaskHelper`: smoke-шаг находит трей-окно по классу и шлёт ему `WM_CLOSE`.
+
+## Версионирование
+
+Формат — `1.major.minor` (ведущая цифра — серия): **major** при новых фичах
+(`1.1.0 → 1.2.0`), **minor** при фиксах и мелких изменениях (`1.1.0 → 1.1.1`), смена
+серии (`2.0.0`) — только при существенной переработке архитектуры. Если код проекта
+(`src/` и `res/` ассеты/rc/manifest) не менялся, exe актуален и версия не поднимается.
+История — [`CHANGELOG.md`](CHANGELOG.md).
+
+Номер живёт в одном месте — `project(POE2FlaskHelper VERSION ...)` в `CMakeLists.txt`;
+он попадает в `--version`, VERSIONINFO, манифест, генерируемый `README.txt` и имя zip.
+Подъём делается только через `./version.sh`:
+
+```
+./version.sh major "описание фичи"     # 1.1.0 -> 1.2.0
+./version.sh minor "описание фикса"    # 1.1.0 -> 1.1.1
+./version.sh series "описание"         # смена серии
+./version.sh check                     # гейт согласованности код <-> версия (build.sh)
+```
+
+`version.sh` правит `CMakeLists.txt` и `CHANGELOG.md` и никогда не коммитит; после
+подъёма гоняй `./build.sh` и коммити `CMakeLists.txt` + `CHANGELOG.md`. Правило 3
+проверяется при подъёме (отказ, если код не менялся; исключение — `--force`) и в сборке
+(красых = zip не создаётся). Подробности — SPEC §2.4.
 
 ## Требования
 

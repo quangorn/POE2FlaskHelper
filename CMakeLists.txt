@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
 # Version: build/version.txt for build.sh (zip naming), version.h for app.rc and main.cpp.
+# The single source of the number is project(... VERSION) above (SPEC §2.4): the user-facing
+# README must not hardcode it, so res/README.txt.in is generated with @PROJECT_VERSION@.
 file(WRITE "${CMAKE_BINARY_DIR}/version.txt" "${PROJECT_VERSION}")
 configure_file("res/version.h.in" "${CMAKE_BINARY_DIR}/version.h" NEWLINE_STYLE CRLF)
 configure_file("res/res_paths.rc.in" "${CMAKE_BINARY_DIR}/res_paths.rc" NEWLINE_STYLE CRLF)
@@ -22,6 +24,12 @@ set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} \"-I ${CMAKE_BINARY_DIR}\" \"-I ${CMAKE_CU
 # The manifest version must follow project(... VERSION), so app.manifest is generated
 # from app.manifest.in (S0-5; same pattern as version.h.in / res_paths.rc.in).
 configure_file("res/app.manifest.in" "${CMAKE_BINARY_DIR}/app.manifest" NEWLINE_STYLE CRLF)
+
+# The zip's user document is generated too (SPEC §2.4): the shipped README carries the
+# project version, so it cannot be a static file with a hardcoded number. Proven
+# byte-parity: replacing @PROJECT_VERSION@ in res/README.txt.in gives the exact shipped
+# bytes; CRLF matches the .gitattributes rule for *.txt. build.sh copies build/README.txt.
+configure_file("res/README.txt.in" "${CMAKE_BINARY_DIR}/README.txt" NEWLINE_STYLE CRLF)
 
 add_compile_options(/W4 /utf-8 /permissive- /EHsc /GR-)
 add_compile_options("$<$<CONFIG:Release>:/O2>" "$<$<CONFIG:Release>:/Gy>")

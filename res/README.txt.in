@@ -1,4 +1,4 @@
-POE2 Flask Helper 1.0.0
+POE2 Flask Helper @PROJECT_VERSION@
 =======================
 
 A tray application for Windows x64. It reads HP/Mana/Energy Shield/Ward/Rage from the
@@ -76,7 +76,7 @@ rights (right-click POE2FlaskHelper.exe -> Run as administrator). Otherwise Wind
 UIPI blocks opening the game process and sending keys to it.
 
 =======================
-POE2 Flask Helper 1.0.0
+POE2 Flask Helper @PROJECT_VERSION@
 =======================
 
 Трей-приложение для Windows x64. Читает HP/Mana/Energy Shield/Ward/Rage из памяти
