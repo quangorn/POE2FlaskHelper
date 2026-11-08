@@ -1,5 +1,5 @@
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+// No <windows.h>: VERSIONINFO and the resource statements need no Win32 headers
+// (S0-11); res_ids.h below is plain #defines.
 
 #include "version.h"
 #include "res_paths.rc"

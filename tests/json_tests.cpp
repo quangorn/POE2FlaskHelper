@@ -99,6 +99,44 @@ TEST(json_strings_utf8_escapes) {
     CHECK_EQ(bad.error.col, 4);  // position of the first bad hex digit
 }
 
+// S1-1: a lone LOW surrogate (\udc00) must be rejected exactly like a lone high one.
+// Before the fix it was accepted and emitted CESU-8 bytes ed b0 80 - invalid UTF-8.
+TEST(json_lone_surrogates_symmetric) {
+    // Lone low surrogate at the end of a string.
+    auto lo = Json::parse("\"\\udc00\"");
+    CHECK(!lo.ok);
+    CHECK_EQ(lo.error.line, 1);
+    CHECK_EQ(lo.error.col, 8);  // the character right after the \uXXXX escape
+    CHECK_EQ(lo.error.msg, std::string("lone surrogate escape"));
+
+    // Lone low surrogate in the middle of a string: no partial text is produced.
+    auto mid = Json::parse("\"x\\udc00y\"");
+    CHECK(!mid.ok);
+    CHECK_EQ(mid.error.msg, std::string("lone surrogate escape"));
+
+    // The whole low-surrogate half of the range is rejected.
+    CHECK(!Json::parse("\"\\udcff\"").ok);
+    CHECK(!Json::parse("\"\\ud800\"").ok);  // high half (regression: stays rejected)
+
+    // Low then high is not a pair (order matters): rejected at the first escape.
+    auto rev = Json::parse("\"\\udc00\\ud83d\"");
+    CHECK(!rev.ok);
+    CHECK_EQ(rev.error.msg, std::string("lone surrogate escape"));
+
+    // A high surrogate followed by a non-surrogate escape is rejected (unchanged).
+    CHECK(!Json::parse("\"\\ud83d\\u0041\"").ok);
+
+    // A valid pair in the middle of text is accepted and decodes to the code point.
+    auto pair = Json::parse("\"x\\ud83d\\ude00y\"");
+    REQUIRE(pair.ok);
+    CHECK_EQ(pair.value.as_string(), std::string("x\xf0\x9f\x98\x80y"));
+
+    // A lone low surrogate inside an object key is rejected too.
+    auto key = Json::parse("{\"\\udc00\":1}");
+    CHECK(!key.ok);
+    CHECK_EQ(key.error.msg, std::string("lone surrogate escape"));
+}
+
 TEST(json_broken_positions) {
     auto a = Json::parse("{\"a\": }");  // '}' at line 1, column 7
     CHECK(!a.ok);

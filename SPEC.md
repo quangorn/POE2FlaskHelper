@@ -3,7 +3,9 @@
 Дата: 2026-11-07; правки v1.1 датированы 2026-11-08 (этап 5). Статус: MVP реализован,
 v1.1 отражает реализованное. Правки v1.1: §2.3 (права запуска в README), §3 (дерево
 как реализовано, ассеты финальны), §3.1 («Тестируемость»), §4.5 (звук при
-startup-enable), §9 (критерий 12).
+startup-enable), §9 (критерий 12). Дополнено 2026-11-08 (minors группа E2): §4.2
+(амеднт про стартовый файловый I/O, BR-7), §7 (debug-запись часового сбоя видна только
+при level=debug, BR-3).
 
 ## 1. Назначение и границы
 
@@ -36,10 +38,15 @@ startup-enable), §9 (критерий 12).
 | Сборка | CMake 3.31 + Ninja из состава BT2022 |
 | Флаги | `/W4 /utf-8 /permissive- /EHsc /GR-`; Release: `/O2 /Gy` |
 | Линковка | `/OPT:REF /OPT:ICF /INCREMENTAL:NO /DEBUG:NONE`, без PDB |
-| Библиотеки | `user32 kernel32 shell32 psapi gdi32 winmm` |
+| Библиотеки | линкуются по target: `user32 kernel32 shell32 psapi gdi32 winmm`; shipped exe импортирует `USER32 KERNEL32 SHELL32 WINMM` (psapi/gdi32 линкуются по target, их импорты вырезает `/OPT:REF` — см. примечание ниже) |
 | Ресурсы | `app.rc`: иконка, VERSIONINFO, манифест (per-monitor DPI v2), `enable.wav`, `disable.wav` |
 
 `advapi32` не используется: реестр, Event Log, права доступа и криптография в MVP не нужны.
+Изменено 2026-11-08 (minors группа E1, S5-3): список §2 — это линкуемые по target библиотеки
+(CMakeLists ограничивает линк-линию этим набором, S0-3). Штатный shipped exe импортирует
+`USER32`, `KERNEL32`, `SHELL32`, `WINMM` и CRT-DLL: `psapi`/`gdi32` ни один целевой файл не
+вызывает, и `/OPT:REF` вырезает их неиспользуемые импорты — список импортов бинарника
+проверяет `research/pe_res_check.py` (он же ловит и дефолтные CMake-библиотеки).
 
 ### 2.1 VC++ v14 x64 runtime
 
@@ -66,9 +73,14 @@ startup-enable), §9 (критерий 12).
 5. Упаковка: `dist/POE2FlaskHelper-<version>-win64/` = `POE2FlaskHelper.exe`,
    `config.json`, `offsets.json`, `README.txt`; zip-архив
    `dist/POE2FlaskHelper-<version>-win64.zip`. Только zip, 7z не используется.
+   Изменено 2026-11-08 (minors группа E1, R5-5): перед созданием zip упакованный exe
+   запускается из временной копии staged-каталога и закрывается documented-хуком
+   `FindWindowW` + `PostMessageW(WM_CLOSE)` (src/tray.h) — полный запуск и чистый выход
+   с кодом 0, критерий §9-2; красых случаев zip не создаётся.
 
-Версия берётся из `project(... VERSION ...)` и попадает в VERSIONINFO и имя архива
-(через сгенерированный `build/version.txt`).
+Версия берётся из `project(... VERSION ...)` и попадает в VERSIONINFO, манифест
+(`assemblyIdentity`, генерируется из `res/app.manifest.in`) и имя архива
+(через сгенерированные `build/version.txt` и `build/app.manifest`).
 
 ### 2.3 `README.txt` в архиве
 
@@ -81,9 +93,12 @@ startup-enable), §9 (критерий 12).
 ## 3. Структура проекта
 
 Изменено 2026-11-08: дерево приведено к реализованному (план §6).
+Изменено 2026-11-08 (minors группа E1, S5-2): дерево дополнено реальными файлами
+`src/scanner_ctl.h`, `res/version.h.in`, `res/res_paths.rc.in`, `res/gen_assets.py`
+(build-time helper); stage-0 заглушка `src/core_placeholder.{h,cpp}` удалена (S5-1).
 
 ```
-build.sh  CMakeLists.txt  README.md  SPEC.md  plan.md  backlog.md  MINOR_ISSUES.md
+build.sh  CMakeLists.txt  README.md  README.txt  SPEC.md  plan.md  backlog.md  MINOR_ISSUES.md
 статическая библиотека poe2_core (общая для exe и тестов; чистая логика, интерфейсы §3.1):
 src/json.{h,cpp}       разбор/сериализация
 src/config.{h,cpp}     схема, валидация, значения по умолчанию
@@ -98,6 +113,7 @@ src/chain.{h,cpp}      цепочка A–J, кэши, tick() на IMemoryReader
 src/vital_math.{h,cpp} ceil-формула резервов зелий
 src/vitals.{h,cpp}     evaluate(): порог, кулдаун, foreground
 src/scanner_session.{h,cpp} state machine сканера, step()
+src/scanner_ctl.h      ScannerCtl: атомиксы enable/stop + снимок phase/pid (UI ↔ поток)
 src/clock.h            интерфейс IClock
 exe (граница ОС — весь Win32 здесь):
 src/main.cpp           WinMain, single instance, message loop, --version
@@ -112,11 +128,21 @@ src/win_keys.cpp       реализация IKeySender на SendInput
 src/mem/             reader.h (IMemoryReader, IMemoryReaderFactory) + win_reader.{h,cpp}
 src/system_clock.h   реализация IClock
 src/res_ids.h        общие id ресурсов (app.rc, C++, тесты)
-res/app.ico res/app.rc res/app.manifest res/enable.wav res/disable.wav
-tests/ мини-фреймворк test.h + test_main.cpp + *_tests.cpp + fakes/ (FakeMemory,
+res/app.ico res/app.rc res/app.manifest.in res/enable.wav res/disable.wav
+res/version.h.in res/res_paths.rc.in  входы configure_file: build/version.h,
+        build/res_paths.rc, build/app.manifest (SPEC §2.2 — версия в VERSIONINFO,
+        манифест и имя архива);
+res/gen_assets.py  build-time helper (не линкуется, не в zip): генератор stub-ассетов
+        этапа 0 (app.ico/enable.wav/disable.wav); ассеты финальны (коммиты 7b286a3,
+        6e3596f), скрипт оставлен как история воспроизводимости заглушек;
+tests/ мини-фреймворк test.h + test_main.cpp + *_tests.cpp + test_tmp.{h,cpp} (временные
+       каталоги) + session_fixture.h (общий фиксированный синтетический образ для
+       session/vital-тестов) + fakes/ (FakeMemory,
        FakeClock, FakeProcess, RecordingKeySender) + synthetic_layout.{h,cpp};
-       консольный exe poe2_tests + ctest (unit)
-config.json offsets.json
+       консольный exe poe2_tests + ctest (unit). Единственный exe-слойный файл в
+       тестовой сборке: tests/scanner_thread_tests.cpp (GA-1) гоняет src/scanner.cpp —
+       старт→стоп→старт на реальном event-объекте, всё остальное — фейки;
+config.json offsets.json offsets_selftest.json (selftest-данные scanner/find_offsets.py)
 ```
 
 Ассеты финальны и предоставлены пользователем 2026-11-07: `res/app.ico`
@@ -129,6 +155,10 @@ config.json offsets.json
 содержит только чистые функции/классы, всё взаимодействие с ОС и временем идёт через
 внедряемые интерфейсы. В exe подставляются реальные реализации, в тестах — фейки;
 сканер тестируется без POE, без Win32 и без sleep (plan §1).
+Изменено 2026-11-08 (minors группа E1, GA-1): поверх этого правила тестовый exe гоняет и
+поток-обёртку `src/scanner.cpp` (tests/scanner_thread_tests.cpp): реальный event-объект и
+поток, фейки для процесса/памяти/часов/клавиш, цикл старт→стоп→старт; без POE, без sleep
+(спин на атомиксах с фиксированным лимитом).
 
 | Интерфейс | Файл | Реализация в exe | Фейк в тестах |
 |---|---|---|---|
@@ -161,6 +191,15 @@ config.json offsets.json
   таймеров кулдауна и вызовов `SendInput`. Управление — `std::atomic` (флаг
   включения, запрос остановки) и событие; join при выходе.
 - Логгер общий для обоих потоков, защищён mutex.
+- Изменено 2026-11-08 (minors группа E2, BR-7; прецедент — «Изменено»-примечания §4.3):
+  формулировка «никакого файлового I/O» на главном потоке распространяется на время
+  message loop — это дух плана (§4.2 фиксирует, что UI-поток не блокируется долгими
+  операциями). Файловый I/O главного потока разрешён только на старте, до входа в
+  message loop: чтение `config.json`, создание `config.json` по умолчанию, чтение
+  `offsets.json` (main.cpp:111-115 — комментарий остаётся, SPEC-фраза не переписывается).
+  К этому моменту нет ни окна, ни UI, который можно заблокировать, и сканерный поток ещё
+  не запущен. Все строки лога пишет поток-записщик (async), главный поток лог-файл не
+  трогает.
 
 ### 4.3 Трей
 
@@ -313,7 +352,11 @@ config.json offsets.json
   хоткея, scanner enabled/disabled, attach/detach (PID, ImageBase), потеря цепочки
   (не чаще раза в 5 с), fatal-ошибки.
 - **debug**: значения Vital'ов на каждом тике, каждое нажатие
-  (`Health 23% < 50%, key=1`), тайминги тика, шаги цепочки.
+  (`Health 23% < 50%, key=1`), тайминги тика, шаги цепочки; единственная стартовая
+  запись о сбое поиска часовой зоны (штампы тогда в UTC).
+- Изменено 2026-11-08 (minors группа E2, BR-3): debug-запись о часовом сбое (S1-12)
+  видна в логе только при `logging.level: "debug"`; при `info` она не появляется —
+  фильтр лога отбрасывает строки ниже уровня.
 - **warn/error**: конфиг, ресурсы, `OpenProcess`, несовпадение смещений.
 
 При уровне `info` одиночные изменения значений и нажатия клавиш не пишутся.

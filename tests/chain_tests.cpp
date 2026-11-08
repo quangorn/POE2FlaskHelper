@@ -134,6 +134,59 @@ TEST(chain_no_life_in_clu) {
     CHECK(r.fail.detail.find("Life") != std::string::npos);
 }
 
+TEST(chain_life_at_region_edge_without_nul_is_accepted) {
+    // MINOR_ISSUES S3-4: "Life" written at the very end of a committed region with NO
+    // NUL after it. poe_scan.py read_cstring reads 16-byte chunks: the first chunk read
+    // comes back short ("Life"), the next chunk read fails, and the assembled string is
+    // "Life" -> the entry is accepted. The old C++ check (got >= 5 with name[4] == NUL)
+    // rejected it.
+    FakeMemory m = make_ready();
+    const uint64_t edge_str = 0x20900200;      // a fresh region, "Life" ending at its edge
+    m.add_region(edge_str, 4, 0);
+    m.put_bytes(edge_str, reinterpret_cast<const uint8_t*>("Life"), 4);
+    m.put_u64(Synth::kBucketArr, edge_str);     // record 0 name -> the edge page
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(r.ok);
+    CHECK_EQ(c.life_index, 0);                  // record 0 is "Life", index field 0
+}
+
+TEST(chain_life_truncated_at_region_edge_is_not_a_match) {
+    // The region edge cuts the name BEFORE "Life" is complete ("Lif"): read_cstring
+    // assembles "Lif", python's comparison to "Life" fails, and the chain reports the
+    // missing Life entry. Pins that the parity is not a prefix match.
+    FakeMemory m = make_ready();
+    const uint64_t cut_str = 0x20900300;
+    m.add_region(cut_str, 3, 0);
+    m.put_bytes(cut_str, reinterpret_cast<const uint8_t*>("Lif"), 3);
+    m.put_u64(Synth::kBucketArr, cut_str);      // record 0 -> "Lif", record 1 -> "Position"
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::LifeIndex);
+}
+
+TEST(chain_life_name_past_the_chunk_cap_is_not_a_match) {
+    // read_cstring reads at most maxlen/16 + 1 = 5 chunks (poe_scan.py maxlen=64), then
+    // stops even with no NUL. A page starting "Life" and running long is read as 80
+    // bytes, not "Life" -> rejected, and the 5-chunk bound keeps the read count fixed
+    // (5 chunk reads for this record, no unbounded scan).
+    FakeMemory m = make_ready();
+    const uint64_t long_str = 0x20900400;
+    m.add_region(long_str, 128, 'A');           // no NUL anywhere
+    m.put_bytes(long_str, reinterpret_cast<const uint8_t*>("Life"), 4);
+    m.put_u64(Synth::kBucketArr, long_str);     // record 0 -> "LifeAAAA...", record 1 -> "Position"
+    ChainCache c;
+    const auto r = poe2::full_chain(m, rev34(), c);
+    CHECK(!r.ok);
+    CHECK_EQ(r.fail.step, ChainStep::LifeIndex);
+    // The scan stops at the chunk cap: reset the counter and pin the read budget -
+    // record 0 = 1 rec + 5 chunks, record 1 = 1 rec + 1 short name read.
+    m.reset_reads();
+    CHECK_EQ(poe2::find_life_index(m, Synth::kBucketArr, 2), -1);
+    CHECK_EQ(m.reads(), 1 + 5 + 1 + 1);         // no unbounded scan past the cap
+}
+
 TEST(chain_capacity_over_50) {
     FakeMemory m = make_ready();
     m.put_u32(Synth::kLookup + static_cast<uint64_t>(rev34().CLU_Bucket) + 32, 51);

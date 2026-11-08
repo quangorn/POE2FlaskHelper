@@ -3,6 +3,8 @@
 #include "test.h"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "app.h"
@@ -231,4 +233,62 @@ TEST(log_file_is_utf8_lf) {
         CHECK_EQ(text, std::string("2026-11-07 12:34:56.789 [info] config.json created with defaults\n"));
         CHECK_EQ(text.find('\r'), std::string::npos);  // LF only, no CRLF translation
     }
+}
+
+// S1-5: the log-open failure branch (src/log.cpp:144-146, open_failed_ = true). The
+// log path sits under a REGULAR FILE, so the directory cannot be created and the file
+// open fails. The logger reports healthy() == false, drops the lines, and every later
+// log()/flush() must return without stalling or crashing (main.cpp:130-136 depends on
+// this being a clean, non-blocking path: it logs the error and shows the MessageBox).
+// BR-4 (2026-11-08): the third real-world variant of SPEC §8 - a read-only exe
+// directory, i.e. an ACL that denies CreateFile write access on logs/app.log - reaches
+// exactly this same open_failed_ = true branch: the open syscall fails, the writer
+// thread never retries, healthy() is false and flush() returns. The two tests below
+// exercise the branch through the filesystem shape (path blocked by a regular file /
+// path is a directory); an ACL scenario needs a prepared ACL on a real path and is
+// deliberately not exercised - it adds no new code path, so it is documented as
+// equivalent to the tests here.
+TEST(log_open_failure_is_unhealthy) {
+    namespace fs = std::filesystem;
+    fs::path dir = poe2::testing::tmp_dir("log_open_failure");
+    {
+        std::ofstream f(dir / "logs");  // "logs" is a file, not a directory
+        f << "not a directory";
+        f.close();
+    }
+    REQUIRE(fs::is_regular_file(dir / "logs"));
+    poe2::testing::FakeClock clock;
+    clock.set(kMs);
+    clock.set_tz(0);
+    {
+        Logger log((dir / "logs" / "app.log").string(), clock, LogOptions{});
+        log.log(LogLevel::Info, "first line");
+        log.flush();                      // returns: the open failed once, no retries
+        CHECK(!log.healthy());
+        log.log(LogLevel::Error, "second line");
+        log.flush();                      // must not stall on a file that never opens
+        CHECK(!log.healthy());
+    }  // destructor joins the writer thread: no crash
+    // The blocker file is untouched and no log file exists.
+    CHECK_EQ(poe2::testing::read_file(dir / "logs"), std::string("not a directory"));
+    CHECK(!fs::exists(dir / "logs" / "app.log"));
+}
+
+// The same branch from the other side: the log path IS a directory, so opening it as
+// a file fails. Healthy() must be false and flush() must return.
+TEST(log_path_is_directory_is_unhealthy) {
+    namespace fs = std::filesystem;
+    fs::path dir = poe2::testing::tmp_dir("log_path_dir");
+    fs::create_directories(dir / "app.log");  // a directory where the log file goes
+    REQUIRE(fs::is_directory(dir / "app.log"));
+    poe2::testing::FakeClock clock;
+    clock.set(kMs);
+    clock.set_tz(0);
+    {
+        Logger log((dir / "app.log").string(), clock, LogOptions{});
+        log.log(LogLevel::Info, "line");
+        log.flush();
+        CHECK(!log.healthy());
+    }
+    CHECK(fs::is_directory(dir / "app.log"));  // the directory survives untouched
 }

@@ -31,8 +31,8 @@ std::vector<VitalAction> evaluate(const std::array<VitalVals, kVitalCount>& samp
         a.key = d.key;
         a.vk = kr.key.vk;
         a.extended = kr.key.extended;
-        // Display percent, same half-up rounding as the tick values line.
-        a.percent = static_cast<int>((100 * static_cast<int64_t>(v.current) + unres / 2) / unres);
+        // Display percent, the same half-even (python round()) as the tick values line.
+        a.percent = percent_round(v.current, unres);
         a.threshold = d.threshold;
         actions.push_back(a);
     }

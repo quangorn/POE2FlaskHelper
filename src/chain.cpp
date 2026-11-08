@@ -54,6 +54,32 @@ struct ItemBlock {
     uint64_t details = 0, comp_first = 0, comp_last = 0, comp_end = 0;
 };
 
+// poe_scan.py read_cstring (MINOR_ISSUES S3-4): read 16-byte chunks forward from addr
+// until a NUL byte or a read that returns nothing, and assemble the bytes between. The
+// python prototype therefore accepts a "Life" page that ends exactly at the committed
+// region edge with no visible NUL: its first chunk read comes back short ("Life"), the
+// next chunk read fails and the string is complete. A C-string that the region edge
+// truncates BEFORE the full name (e.g. "Lif") is not a match, same as python.
+std::string read_cstring(IMemoryReader& m, uint64_t addr, size_t maxlen = 64) {
+    std::string out;
+    uint64_t pos = addr;
+    // The python loop runs maxlen / 16 + 1 times; a chunk read with no bytes stops it.
+    for (size_t c = 0; c < maxlen / 16 + 1; ++c) {
+        uint8_t chunk[16];
+        const size_t got = m.read(pos, chunk, sizeof chunk);
+        if (!got) break;
+        size_t nul = 0;
+        bool found = false;
+        for (size_t i = 0; i < got; ++i) {
+            if (chunk[i] == 0) { nul = i; found = true; break; }
+        }
+        out.append(reinterpret_cast<const char*>(chunk), found ? nul : got);
+        if (found) break;
+        pos += 16;
+    }
+    return out;
+}
+
 }  // namespace
 
 const char* chain_step_name(ChainStep s) {
@@ -118,13 +144,7 @@ int64_t find_life_index(IMemoryReader& m, uint64_t b_first, uint64_t elems) {
         const uint64_t name_ptr = block_u64(rec, 0);
         const uint32_t idx = block_u32(rec, 8);
         if (!name_ptr) continue;
-        // "Life" is 5 bytes with the NUL: a 16-byte read covers it; a region-edge
-        // short read down to 5 bytes is enough too.
-        char name[16] = {};
-        const size_t got = m.read(name_ptr, name, sizeof name);
-        if (got >= 5 && std::memcmp(name, "Life", 4) == 0 && name[4] == '\0') {
-            return static_cast<int64_t>(idx);
-        }
+        if (read_cstring(m, name_ptr) == "Life") return static_cast<int64_t>(idx);
     }
     return -1;
 }
@@ -160,6 +180,14 @@ FullChainResult full_chain(IMemoryReader& m, const Offsets& o, ChainCache& cache
     // (C) CurrentStatePtr: std::vector of 16-byte state entries, the current state is
     // the last element (poe_scan.py chain step C). Checked at attach; ticks read the
     // States array directly.
+    // STRICTER than poe_scan.py on purpose (MINOR_ISSUES S3-6): python only checks the
+    // 24-byte read length, then takes *(Last - 0x10) as the current state and continues
+    // even when the triple is malformed. The C++ chain validates the triple as a real
+    // std::vector (non-null First, Last > First, End >= Last, and the element stride
+    // (Last - First) % 16 == 0) and requires the current-state pointer to read back
+    // non-null and non-zero. The strictness is harmless: every extra check can only
+    // reject a garbage/misaligned offset set, which SPEC §8 reports as "Offsets
+    // mismatch" - the chain must never walk a pointer the vector bounds do not justify.
     uint8_t vec[24];
     if (m.read(*gs + static_cast<uint64_t>(o.CurrentStatePtr), vec, sizeof vec) < sizeof vec) {
         r.fail = {ChainStep::CurrentStatePtr, "short read of CurrentStatePtr at GameState+" +

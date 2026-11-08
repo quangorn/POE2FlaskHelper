@@ -1,5 +1,6 @@
 #include "offsets.h"
 
+#include <cassert>
 #include <cstdio>
 #include <iterator>
 #include <vector>
@@ -67,7 +68,12 @@ int64_t* field(Offsets& o, const char* name) {
     if (s == "WardOff") return &o.WardOff;
     if (s == "RageOff") return &o.RageOff;
     if (s == "BackPtrOff") return &o.BackPtrOff;
-    return &o.Score;  // "Score"
+    if (s == "Score") return &o.Score;  // Score is a key like any other, not a fallback
+    // MINOR_ISSUES S1-7: the old code returned &o.Score for ANY unknown name.
+    // field() is called only with kKeys names (the loop below), so this default is
+    // unreachable; assert documents it and nullptr means "no field" for the caller.
+    assert(false && "field() called with a name outside kKeys");
+    return nullptr;
 }
 
 }  // namespace
@@ -91,6 +97,10 @@ OffsetsResult offsets_parse(const std::string& text) {
     for (size_t i = 0; i < std::size(kKeys); ++i) {
         const KeySpec& k = kKeys[i];
         out[i] = field(r.offsets, k.name);
+        if (!out[i]) {  // defensive: a kKeys name with no field (unreachable, S1-7)
+            add_error(r.error, std::string("internal: no field for key \"") + k.name + "\"");
+            continue;
+        }
         const Json* n = root.find(k.name);
         if (!n) {
             add_error(r.error, std::string("missing key \"") + k.name + "\"");

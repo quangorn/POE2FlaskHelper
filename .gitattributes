@@ -1,5 +1,9 @@
 # Line endings at checkout: cygwin bash scripts must stay LF, Notepad files CRLF,
 # binary assets untouched.
+# Note (S5-5): the eol rules apply at checkout only - files already materialized in a
+# working tree are NOT re-smudged. A dirty re-clone (files written with the other eol)
+# normalizes on fresh checkout: run `git checkout -- .` to re-materialize the tree,
+# otherwise the working files keep their existing line endings.
 * text=auto
 *.sh text eol=lf
 *.py text eol=lf

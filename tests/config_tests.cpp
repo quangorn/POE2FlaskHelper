@@ -143,6 +143,44 @@ TEST(config_type_mismatch_defaults) {
     CHECK_EQ(r.warnings.size(), 5u);
 }
 
+// S1-9: a JSON Real in an integer field ({"threshold":50.0}) is not valid for the
+// current implementation: SPEC §5 lists only range/type rules, int_field requires
+// is_int(), so the float takes the warning + default path. Pinned here so the
+// behavior cannot silently change.
+TEST(config_float_at_int_field_rejected) {
+    auto r = config_parse(R"({
+        "configVersion":2.0,
+        "scanner":{"pollIntervalMs":100.0},
+        "vitals":{"Mana":{"threshold":50.0,"cooldownMs":2000.0}},
+        "logging":{"maxSizeKb":2048.0,"keepFiles":5.0}})");
+    CHECK(!r.jsonBroken);  // valid JSON, the fields are just not integers
+    CHECK_EQ(r.warnings.size(), 6u);  // configVersion, poll, threshold, cooldown, maxSizeKb, keepFiles
+    CHECK_EQ(r.cfg.configVersion, 1);        // 2.0 -> default
+    CHECK_EQ(r.cfg.scanner.pollIntervalMs, 50);
+    CHECK_EQ(r.cfg.vitals[poe2::kHealth].threshold, 50);   // untouched
+    CHECK_EQ(r.cfg.vitals[poe2::kMana].threshold, 40);     // 50.0 -> default
+    CHECK_EQ(r.cfg.vitals[poe2::kMana].cooldownMs, 1000);  // 2000.0 -> default
+    CHECK_EQ(r.cfg.logging.maxSizeKb, 1024);
+    CHECK_EQ(r.cfg.logging.keepFiles, 3);
+    // The warning is the standard invalid-value text, with the allowed range.
+    bool all_invalid = true;
+    for (const auto& w : r.warnings) {
+        if (w.find("invalid") == std::string::npos) all_invalid = false;
+        if (w.find("default") == std::string::npos) all_invalid = false;
+    }
+    CHECK(all_invalid);
+
+    // Exponent form is also a Real: rejected the same way (no int coercion).
+    auto e = config_parse(R"({"scanner":{"pollIntervalMs":1e2}})");
+    CHECK_EQ(e.warnings.size(), 1u);
+    CHECK_EQ(e.cfg.scanner.pollIntervalMs, 50);
+
+    // An integer value in the same field is accepted: the rule is type, not spelling.
+    auto i = config_parse(R"({"scanner":{"pollIntervalMs":100}})");
+    CHECK_EQ(i.warnings.size(), 0u);
+    CHECK_EQ(i.cfg.scanner.pollIntervalMs, 100);
+}
+
 TEST(config_broken_json_runs_on_defaults) {
     auto r = config_parse("{ config.json");
     CHECK(r.jsonBroken);

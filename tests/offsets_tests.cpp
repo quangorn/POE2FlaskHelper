@@ -125,6 +125,63 @@ TEST(offsets_out_of_range_is_error) {
     CHECK(!z.ok);
 }
 
+// S1-7: field() must map every kKeys name to its own field - "Score" is an explicit
+// branch, not the fallback for unknown names. Unique values pin each mapping.
+TEST(offsets_key_field_mapping_is_injective) {
+    // kKeys order in src/offsets.cpp, value = position (ranges respected:
+    // TotalOff = 11, vital offs > 11, TOTAL in 1..64, Score in 0..1000).
+    auto r = poe2::offsets_parse(R"({"CurrentStatePtr":1,"States":2,"TOTAL":3,
+        "AreaInstanceData":4,"LocalPlayers":5,"EntityId":6,"EntityIsValid":7,
+        "EntityDetailsName":8,"EntityDetailsLookup":9,"CLU_Bucket":10,
+        "TotalOff":11,"CurrentOff":12,"ReservedOff":13,"ReservedFlat":14,
+        "HealthOff":15,"ManaOff":16,"ESOff":17,"WardOff":18,"RageOff":19,
+        "BackPtrOff":20,"Score":21})");
+    REQUIRE(r.ok);
+    const poe2::Offsets& o = r.offsets;
+    CHECK_EQ(o.CurrentStatePtr, 1);   CHECK_EQ(o.States, 2);
+    CHECK_EQ(o.TOTAL, 3);             CHECK_EQ(o.AreaInstanceData, 4);
+    CHECK_EQ(o.LocalPlayers, 5);      CHECK_EQ(o.EntityId, 6);
+    CHECK_EQ(o.EntityIsValid, 7);     CHECK_EQ(o.EntityDetailsName, 8);
+    CHECK_EQ(o.EntityDetailsLookup, 9);   CHECK_EQ(o.CLU_Bucket, 10);
+    CHECK_EQ(o.TotalOff, 11);         CHECK_EQ(o.CurrentOff, 12);
+    CHECK_EQ(o.ReservedOff, 13);      CHECK_EQ(o.ReservedFlat, 14);
+    CHECK_EQ(o.HealthOff, 15);        CHECK_EQ(o.ManaOff, 16);
+    CHECK_EQ(o.ESOff, 17);            CHECK_EQ(o.WardOff, 18);
+    CHECK_EQ(o.RageOff, 19);          CHECK_EQ(o.BackPtrOff, 20);
+    // The old fallback wrote &o.Score for any name that is not in the chain above:
+    // every key below has a value the Score branch alone must produce.
+    CHECK_EQ(o.Score, 21);
+    // Injectivity: Score's value appears in exactly one field.
+    int64_t fields[] = {o.CurrentStatePtr, o.States, o.TOTAL, o.AreaInstanceData,
+                        o.LocalPlayers, o.EntityId, o.EntityIsValid,
+                        o.EntityDetailsName, o.EntityDetailsLookup, o.CLU_Bucket,
+                        o.TotalOff, o.CurrentOff, o.ReservedOff, o.ReservedFlat,
+                        o.HealthOff, o.ManaOff, o.ESOff, o.WardOff, o.RageOff,
+                        o.BackPtrOff, o.Score};
+    int hits = 0;
+    for (int64_t f : fields) {
+        if (f == 21) ++hits;
+    }
+    CHECK_EQ(hits, 1);
+    // Score is not used by the app: its value must not move any derived base.
+    CHECK_EQ(o.health_base(), 15 - 11);
+    CHECK_EQ(o.rage_base(), 19 - 11);
+}
+
+// A missing "Score" is a missing-key error like any other key (SPEC §6): the explicit
+// branch must not make Score optional.
+TEST(offsets_score_key_is_mandatory) {
+    auto r = poe2::offsets_parse(R"({"CurrentStatePtr":16,"States":80,"TOTAL":13,
+        "AreaInstanceData":656,"LocalPlayers":1472,"EntityId":136,"EntityIsValid":140,
+        "EntityDetailsName":8,"EntityDetailsLookup":40,"CLU_Bucket":40,
+        "TotalOff":52,"CurrentOff":56,"ReservedOff":28,"ReservedFlat":24,
+        "HealthOff":476,"ManaOff":564,"ESOff":628,"WardOff":788,"RageOff":716,
+        "BackPtrOff":16})");  // Score absent
+    CHECK(!r.ok);
+    CHECK(r.error.find("Score") != std::string::npos);
+    CHECK_EQ(r.offsets.Score, 0);  // default, untouched by the parse
+}
+
 TEST(offsets_extra_keys_ignored) {
     auto r = poe2::offsets_parse(R"({"CurrentStatePtr":16,"States":80,"TOTAL":13,
         "AreaInstanceData":656,"LocalPlayers":1472,"EntityId":136,"EntityIsValid":140,

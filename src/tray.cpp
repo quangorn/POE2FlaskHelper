@@ -65,7 +65,8 @@ bool Tray::create() {
     } else {
         class_registered_ = true;   // ~Tray pairs this with UnregisterClassW
     }
-    // No WS_VISIBLE: a hidden top-level window, FindWindowW still finds it.
+    // No WS_VISIBLE: a hidden top-level window. FindWindowW still finds it
+    // (FindWindow Remarks: "FindWindow searches invisible windows") - see tray.h.
     hwnd_ = CreateWindowExW(0, kTrayWindowClass, L"POE2FlaskHelper", 0, 0, 0, 0, 0,
                             nullptr, nullptr, host_.hInst, this);
     if (!hwnd_) {

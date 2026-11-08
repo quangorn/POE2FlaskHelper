@@ -20,127 +20,32 @@
 
 ## Stage 0 — review (build.sh, CMake, main.cpp, res/, tests/)
 
-### S0-1: build.sh:90 — упаковка через python без проверки наличия
-- файл: build.sh:90
-- суть: cygwin `python` не входит в тулчейн SPEC §2; если его нет — сборка падает в самом конце с «command not found».
-- статус: open
-- источник: reviewer stage 0
-
-### S0-2: CMakeLists.txt:14 — CMAKE_RC_FLAGS без кавычек
-- файл: CMakeLists.txt:14
-- суть: `-I ${CMAKE_BINARY_DIR}` ломается при пробелах в пути проекта; строка избыточна — include poe2_core уже транслируется в app.rc.
-- статус: open
-- источник: reviewer stage 0
-
-### S0-3: CMakeLists.txt:29-30 — дефолтные лины CMake в линк-лайне
-- файл: CMakeLists.txt:29-30
-- суть: advapi32/ole32/uuid и т.д. от дефолта CMAKE_LINK_LIBRARY_FLAG; в exe не попадают (dumpbin чист), SPEC §2 формально говорит «advapi32 не используется». Комментарий, чтобы никто не паниковал.
-- статус: open
-- источник: reviewer stage 0
-
-### S0-4: CMakeLists.txt:18 — /MANIFEST:NO отсутствует в списке линк-флагов SPEC §2
-- файл: CMakeLists.txt:18
-- суть: флаг необходим (манифест внедряет app.rc, линковочный дублировал бы); добавить комментарий над флагом.
-- статус: open
-- источник: reviewer stage 0
-
-### S0-5: res/app.manifest:3 — версия assemblyIdentity захардкожена
-- файл: res/app.manifest:3
-- суть: version="1.0.0.0" zestareет при bump VERSION; генерить из .in с @PROJECT_VERSION@.
-- статус: open
-- источник: reviewer stage 0
-
-### S0-9: build.sh:12-13 — vswhere -latest может выбрать VS без CMake/Ninja
-- файл: build.sh:12-13
-- суть: тогда cmake «command not found» внутри cmd; проверить наличие cmake.exe и FATAL с внятным сообщением.
-- статус: open
-- источник: reviewer stage 0
-
-### S0-11: res/app.rc:1-2 — лишний #include <windows.h>
-- файл: res/app.rc:1-2
-- суть: VERSIONINFO его не требует; убрать.
-- статус: open
-- источник: reviewer stage 0
+S0-1, S0-2, S0-3, S0-4, S0-5, S0-9, S0-11 исправлены и удалены в проходе по GROUP D (2026-11-08).
 
 ### S0-12: tests/test_main.cpp:42-44 — exit-path run_all() проверен только через probe-счётчики
 - файл: tests/test_main.cpp:42-44
 - суть: тест не может самозапустить run_all(); честная запись в комментарии есть. Действий нет.
-- статус: open (no-action)
+- статус: leave (фреймворк не может сам себя запустить изнутри теста: exit-код `run_all()`
+  проверяется снаружи ctest, probe-счётчики честны; комментарий в тесте это описывает)
 - источник: reviewer stage 0
 
 ### S0-13: res/gen_assets.py:29 — AND-маска all-zero
 - файл: res/gen_assets.py:29
 - суть: прозрачность только через alpha 32bpp; для современных оболочек корректно. Действий нет.
-- статус: open (no-action)
+- статус: leave (32bpp alpha — корректный путь прозрачности для современных оболочек,
+  all-zero AND-маска = «полностью непрозрачно» по формату ICO; legacy-монохромный путь не нужен)
 - источник: reviewer stage 0
 
 ### S0-14: build.sh:4,63 — set -u отсутствует; rc strip игнорируется (за ним guard)
 - файл: build.sh:4,63
 - суть: намеренно; действий нет.
-- статус: open (no-action)
+- статус: leave (`set -u` опущен намеренно, rc strip игнорируется осознанно — за strip стоит
+  guard целостности (plan §5 risk 2), поведение задокументировано в комментариях build.sh)
 - источник: reviewer stage 0
 
-## Stage 1 — review (json, log, config, offsets, keys, app)
+## Stage 1 — review (json, log, config, offsets, args, system_clock)
 
-### S1-1: src/json.cpp:112-124 — одиночная низкая суррогатная пара \udc00 принимается
-- файл: src/json.cpp:112-124
-- суть: \udc00 принимается и эмитит CESU-8 байты ed b0 80; отклонять симметрично одиночной высокой суррогат.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-4: src/main.cpp:78-102 — конфиг/offsets I/O на главном потоке
-- файл: src/main.cpp:78-102
-- суть: SPEC §4.2 формально запрещает файловый I/O на главном потоке; по духу — речь о message loop, на старте других потоков нет. Добавить комментарий, что это startup-only, до message loop.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-5: tests/log_tests.cpp — нет теста откры失败的 лога и read-only exe dir
-- файл: tests/log_tests.cpp; src/log.cpp:133-136; src/main.cpp:94-100
-- суть: ветка healthy()==false (лог не открывается) и MessageBox-ветка read-only каталога exe не покрыты тестами. Тест: log path под regular file; read-only dir — через scratch.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-6: tests/test_tmp.cpp:8, tests/fakes/FakeClock.cpp:8 — anchor-функции не объявлены в заголовках
-- файл: tests/test_tmp.cpp:8; tests/fakes/FakeClock.cpp:8
-- суть: безвредно; объявить в headers.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-7: src/offsets.cpp:70 — field() отдаёт &o.Score как fallback для любого неизвестного имени
-- файл: src/offsets.cpp:70
-- суть: ветка Score должна быть явной, не fallback.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-8: src/config.cpp:207-208 — дублируется литерал массива имён Vital'ов
-- файл: src/config.cpp:207-208
-- суть: переиспользовать kVitalNames.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-9: numeric-поля не принимают float ({"threshold":50.0}) — нет теста
-- файл: src/config.cpp
-- суть: float в int-поле отвергается → warning+default; SPEC не запрещает; добавить тест, фиксирующий поведение.
-- статус: open
-- источник: reviewer stage 1
-
-### S1-10: src/args.cpp:34 — упрощения vs CommandLineToArgvW не задокументированы
-- файл: src/args.cpp:34, src/args.h
-- суть: `"a""b"` → `ab` (референс `a"b`); ведущие пробелы: референс даёт пустой argv[0], split его дропает. На match_flag не влияет; добавить одну строку документации в args.h.
-- статус: open
-- источник: reviewer stage 1 (re-review)
-
-### S1-11: tests/args_tests.cpp — два гэпа покрытия
-- файл: tests/args_tests.cpp (command_line_split_quoting)
-- суть: не покрыты незакрытая кавычка (`app.exe "unclosed --version`) и trailing 2n бэкслешей перед закрывающей кавычкой в конце строки (`app.exe C:\dir\\"`); обе ветки проверены ревьюером вручную как корректные.
-- статус: open
-- источник: reviewer stage 1 (re-review)
-
-### S1-12: src/system_clock.h:27 — TIME_ZONE_ID_INVALID молча штампуется UTC
-- файл: src/system_clock.h:27
-- суть: приемлемо для MVP (задокументировано); добавить одноразовную debug-запись в лог при неудачном взгляде зоны.
-- статус: open
-- источник: reviewer stage 1 (re-review)
+Пусто: S1-1, S1-4..S1-12 исправлены и удалены в проходе по GROUP B (2026-11-08).
 
 ## Assets (задача, не проблема)
 - Пользователь предоставил res/on.wav и res/off.wav; заменено в enable.wav/disable.wav (коммит `6e3596f`).
@@ -151,108 +56,88 @@
 
 ## Stage 3 — review (signature, chain, tick, scanner_session, win_reader)
 
-### S3-2: src/scanner.cpp:15-18 — event handle `wake_` не закрывается
-- файл: src/scanner.cpp:15-18
-- суть: нет CloseHandle(wake_) после join; поглощается выходом процесса. Fix: CloseHandle в ~Scanner() после stop().
-- статус: open
-- источник: reviewer stage 3
+Пусто: S3-2..S3-6 исправлены и удалены в проходе по GROUP A (2026-11-08).
 
-### S3-3: src/scanner.h:51 — мёртвый член `joined_`
-- файл: src/scanner.h:51
-- суть: delete или использовать явной bookkeeping-отметкой join.
-- статус: open
-- источник: reviewer stage 3
-
-### S3-4: src/chain.cpp:121-127 — find_life_index строже poe_scan.py на границе региона
-- файл: src/chain.cpp:121-127
-- суть: py read_cstring читает 16-байтовые чанки за коротким чтением и принимает "Life" на границе без явного NUL; C++ требует got≥5+NUL. Impact пренебрежим, строгость defensable; паритет — эмулировать read_cstring.
-- статус: open
-- источник: reviewer stage 3
-
-### S3-5: src/scanner_session.cpp:34 — half-up округление debug-строки vs banker's в py
-- файл: src/scanner_session.cpp:34
-- суть: `(100*current + unres/2)/unres` half-up; py round() banker's; debug-дисплей на .5 печатает на 1 выше; решения не зависит. Косметика, выравнивание через nearbyint или оставить с заметкой.
-- статус: open
-- источник: reviewer stage 3
-
-### S3-6: src/chain.cpp:160-182 — full_chain step C строже poe_scan.py
-- файл: src/chain.cpp:160-182
-- суть: проверяет `(cs_last − cs_first) % 16` и non-null current-state — py не валидирует; строгость безвредна; расширить комментарий о намеренной строгости.
-- статус: open
-- источник: reviewer stage 3
+## Stage 4 — review (vital_math, vitals)
 
 ### S4-1: src/vital_math.cpp:11 — reserved_amount клампит отрицательный flat к 0 vs py truncation
 - файл: src/vital_math.cpp:11
 - суть: py `int(x + 0.999999)`truncate'т отрицательные к нулю, C клампит к 0; недостижимо (tick читает u32), «defensive»; добавить parity-заметку.
-- статус: open
-- источник: reviewer stage 4
-
-### S4-2: src/vitals.h:36 — комментарий «extended = E0 prefix for NumPad», SPEC §4.8 включает стрелки
-- файл: src/vitals.h:36
-- суть: формулировка неполная (keys.h:53 корректна); код верён; косметика.
-- статус: open
+- статус: leave (паритет не реализуем integer-exact: py truncation'ит FLOAT `pct/10000*total + flat + 0.999999` к нулю,
+  при отрицательной сумме это не ceil и зависит от double-округления; все поля tick читаются как u32 (chain.cpp block_u32),
+  так что отрицательный flat недостижим. Clamp + заметка в vital_math.{h,cpp} + тест reserved_negative_flat_is_clamped_defensive.)
 - источник: reviewer stage 4
 
 ## Stage 5 — review (README, SPEC v1.1, build.sh gate, .gitattributes)
 
-### S5-1: src/core_placeholder.* + CMakeLists.txt:28 — мёртвая stage-0 заглушка в shipped poe2_core
-- файл: src/core_placeholder.cpp:3-9, src/core_placeholder.h, CMakeLists.txt:28, tests/test_main.cpp:9-14
-- суть: `int core_stub(){return 42;}` компилится в shipped либе; 2 теста из 142 тратятся на неё. Удалить файл, entry, 2 теста.
-- статус: open
-- источник: reviewer stage 5
-
-### S5-2: SPEC.md:86-120 — дерево не включает реальные файлы
-- файл: SPEC.md:86-120
-- суть: omit'ы `src/scanner_ctl.h`, `src/core_placeholder.{h,cpp}`, `res/version.h.in`, `res/res_paths.rc.in`, `res/gen_assets.py`; добавить (или отметить build-time helpers).
-- статус: open
-- источник: reviewer stage 5
-
-### S5-3: SPEC.md:39 — `psapi gdi32` в списке линкуемых библиотек
-- файл: SPEC.md:39
-- суть: shipped exe не зависит от них (линкер выкинул неиспользуемые импорты); align §2 с бинарником.
-- статус: open
-- источник: reviewer stage 5
-
-### S5-4: README.txt:77,105 — шероховатости RU-текста
-- файл: README.txt:77,105
-- суть: «при отсутствии, битом или неполном» → «повреждённом»; «значения перестают сходиться» → «смещения перестают совпадать».
-- статус: open
-- источник: reviewer stage 5
-
-### S5-5: .gitattributes — нюанс re-smudge для materialized файлов
-- файл: .gitattributes
-- суть: eol-правила применяются только на свежем checkout; dirty re-clone требует `git checkout -- .`; добавить примечание в комментарий.
-- статус: open
-- источник: reviewer stage 5
+S5-1..S5-5 исправлены и удалены в проходе по GROUP E1 (2026-11-08). S5-1 объединён с D2:
+заглушка `src/core_placeholder.{h,cpp}` + CMake-entry + 2 stub-теста удалены; в
+tests/test_main.cpp осталась version-консистентность без хардкода "1.0.0" (макросы
+сравниваются между собой), bump VERSION 2.5.1 → ctest зелёный, zip
+`POE2FlaskHelper-2.5.1-win64.zip` (D2-доказательство; S0-5: версия следует за project VERSION).
 
 ## Stage 5 — re-review (маjors M-1/M-2 закрыты)
 
-### R5-1: src/tray.h:6-8 vs src/tray.cpp:68 — противоречие про FindWindowW
-- файл: src/tray.h:6-8; src/tray.cpp:68
-- суть: tray.h утверждает, что FindWindowW не находит невидимые окна и указывает EnumWindows+GetClassNameW; tray.cpp говорит, что FindWindowW всё равно находит. Измерено: на hidden-окне FindWindowW возвращает тот же HWND, что EnumWindows. Утверждение в tray.h ложно; выбрать одно утверждение.
-- статус: open
-- источник: reviewer stage 5 (re-review)
+R5-1..R5-4 исправлены и удалены в проходе по GROUP C (2026-11-08; измерение FindWindowW —
+таблица в отчёте группы C: FindWindowW и EnumWindows+GetClassNameW возвращают один HWND на
+hidden-окне). R5-5 исправлен и удалён в проходе по GROUP E1 (2026-11-08): build.sh гоняет
+dist-exe smoke-run из временной копии staged-каталога (запуск + FindWindowW +
+PostMessageW(WM_CLOSE) + rc 0, SPEC §9-2) перед созданием zip.
 
-### R5-2: src/tray.h:23 — «правый клик нельзя симулировать как reviewer-хук»
-- файл: src/tray.h:23
-- суть: противоречит измерению того же абзаца (доставлено, меню всплыло); читается как «нельзя полагаться / integrity-dependent».
-- статус: open
-- источник: reviewer stage 5 (re-review)
+## Group A — re-review (core scanner minors)
 
-### R5-3: модальные меню/диалоги не обслуживают exit-хуки — нет примечания
-- файл: src/tray.h (docs)
-- суть: измерено: WM_COMMAND 1002 при открытом TrackPopupMenu логирует exit, но shutdown не завершается, пока меню открыто; BM_CLICK/WM_CLOSE из внешнего процесса не дисмиссят MessageBox «already running». Примечание в tray.h, т.к. PostMessage-хуки рекламируются как smoke-путь.
-- статус: open
-- источник: reviewer stage 5 (re-review)
+GA-1, GA-2 исправлены и удалены в проходе по GROUP E1 (2026-11-08): thread-тест
+`tests/scanner_thread_tests.cpp` (start→stop→start на реальном event, base+2/base+1/base+2/
+base+1/base handle-count asserted) + метод измерения записан в src/scanner.cpp.
 
-### R5-4: README.txt:26,88 — нет пробела перед тире `Admin rights required- OpenProcess denied`
-- файл: README.txt:26,88
-- суть: EN и RU; косметика, семья S5-4.
-- статус: open
-- источник: reviewer stage 5 (re-review)
+### GA-3: py read_cstring decode('ascii','replace') vs C++ raw-bytes
+- файл: src/chain.cpp:63-81
+- суть: практических расхождений для равенства "Life" нет (любой не-ASCII отклоняется обеими сторонами); действий нет.
+- статус: leave (py decode('ascii','replace') и C++ raw-bytes дают один и тот же результат на
+  равенстве "Life": py-replace вставляет U+FFFD (не-ASCII), C++ сохраняет raw-байт — обе стороны
+  не равны "Life"; ASCII-имена совпадают побайтно. Функционального расхождения нет, паритет
+  boundary-кейсов (S3-4) уже покрыт тестами. Действий нет.)
+- источник: reviewer group A
 
-### R5-5: build.sh post-strip gate проверяет только --version
-- файл: build.sh (post-strip gate)
-- суть: критерий §9-2 «запуск из распакованного архива» не упражняется в gate; dist-exe smoke-run (запуск+toggle+exit rc 0) закрыл бы гэп.
-- статус: open
-- источник: reviewer stage 5 (re-review)
+## Group B — re-review (Stage-1 core minors)
+
+BR-1, BR-2, BR-3, BR-4, BR-5, BR-7 исправлены и удалены в проходе по GROUP E2 (2026-11-08):
+BR-1 — src/args.h задокументировал третью семью (кавычка, смежная с некавычечным текстом:
+`app.exe"x"` → API `app.exe"x"`, split `app.exex`; пустая/whitespace command line: argvw n=1
+empty vs split n=0), flag-паритет-формулировка сохранена; BR-2 — comment в
+tests/args_tests.cpp приведён к фактическому count (15 agree + 2 pinned divergences +
+0 flag-расхождений); BR-3 — SPEC §7 и README.txt (EN+RU): debug-запись часового сбоя видна
+только при `logging.level: "debug"`; BR-4 — ACL/read-only-exe-dir вариант открыт комментарием
+в tests/log_tests.cpp (тот же `open_failed_`, новой ACL-тест-записи нет); BR-5 — raw-byte pass-through
+задокументирован в src/json.h (escape-сторона закрыта S1-1, валидация — за потребителем);
+BR-7 — амеднт в SPEC §4.2 (прецедент §4.3, 2026-11-08), comment main.cpp:111-115 остаётся.
+
+### BR-6: assert(false) в field() исчезает под Release NDEBUG
+- файл: src/offsets.cpp:73-75
+- суть: подтверждено NDEBUG; nullptr + caller-error делают ветку мёртвой; silent UB нет.
+- статус: leave (под NDEBUG assert снят, но ветка мёртвая по конструкции: field() вызывается
+  только с именами kKeys, caller обрабатывает nullptr явной error-строкой "internal: no field
+  for key" — silent UB нет; assert = документация инварианта в debug-сборке, инвариант
+  пинит offsets_key_field_mapping_is_injective. Действий нет.)
+- источник: reviewer group B
+
+## Group C — re-review (UI-доки)
+
+CR-1, CR-2 исправлены и удалены в проходе по GROUP E2 (2026-11-08): src/tray.h
+(header-comment про exit-хуки) разделил menu и dialog одной точной заметкой — внешний
+WM_CLOSE дисмиссит оба #32770-объекта
+(MessageBox «already running» исчезает, второй экземпляр выходит rc 0; popup-меню закрывается),
+внешний BM_CLICK не дисмиссит ни один (диалогу и Button-ребёнку); недисмиссенное модальное меню
+блокирует shutdown exit-хука (TrackPopupMenu consumes PostQuitMessage).
+
+## Group D — re-review (tooling/build minors)
+
+D1 исправлен и удалён в проходе по GROUP E1 (2026-11-08): name-offset = `key & 0xFFFF`;
+tree-лист на dist zip печатает WAV-листья как `WAVE 102`, `WAVE 103` (и `GROUP_ICON 101`).
+D2 исправлен и удалён вместе с S5-1 (заглушка удалена, версия проверяется по макросам).
+
+## Group E1 — re-review (release/core minors)
+
+E1-R1, E1-R2 исправлены и удалены в проходе по микро-группе F (2026-11-08): SPEC §3 root-строка
+пополнена README.txt, tests-строка — test_tmp.{h,cpp} и session_fixture.h; build.sh 5b получил
+комментарий-допущение «нет конкурентного экземпляра/параллельного build.sh».

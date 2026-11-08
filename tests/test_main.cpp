@@ -1,17 +1,30 @@
-// Stage 0: trivial test + framework self-checks. ctest runs this as "unit".
+// Framework self-checks + the version-header consistency test. ctest runs this as "unit".
+// The stage-0 core_stub tests are deleted (MINOR_ISSUES S5-1): poe2_core is exercised by
+// the real module tests, and the version assertion compares the generated macros with
+// each other, never a literal "1.0.0" - a project(... VERSION) bump keeps this test green
+// (D2, merged into S5-1: proven by the scratch bump to 2.5.1, ctest green, zip named 2.5.1).
 #include "test.h"
 
 #include <string>
 
 #include "version.h"
-#include "core_placeholder.h"
 
-TEST(core_stub) {
-    // poe2_core is linked into the test exe.
-    CHECK_EQ(poe2::core_stub(), 42);
-    CHECK_EQ(std::string(APP_VERSION_STR), std::string("1.0.0"));
-    CHECK_EQ(APP_VERSION_MAJOR, 1);
-    REQUIRE(poe2::core_stub() >= 0);
+TEST(version_header_consistency) {
+    // build/version.h is generated from res/version.h.in by project(... VERSION)
+    // (SPEC §2.2): the string and the numeric macros must describe one and the same
+    // version, whatever that version is.
+    const std::string v = APP_VERSION_STR;
+    const size_t d1 = v.find('.');
+    REQUIRE(d1 != std::string::npos);
+    const size_t d2 = v.find('.', d1 + 1);
+    REQUIRE(d2 != std::string::npos);
+    CHECK_EQ(v.find('.', d2 + 1), std::string::npos);          // exactly major.minor.patch
+    CHECK_EQ(std::stoi(v.substr(0, d1)), APP_VERSION_MAJOR);   // string fields == macros
+    CHECK_EQ(std::stoi(v.substr(d1 + 1, d2 - d1 - 1)), APP_VERSION_MINOR);
+    CHECK_EQ(std::stoi(v.substr(d2 + 1)), APP_VERSION_PATCH);
+    // VERSIONINFO and the manifest carry "<version>.0" (S0-5): APP_VERSION_FULL is the
+    // project version plus the zero revision field, derived from the same macros.
+    CHECK_EQ(std::string(APP_VERSION_FULL), v + ".0");
 }
 
 // Probes for the framework self-check.

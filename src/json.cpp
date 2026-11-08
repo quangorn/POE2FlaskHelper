@@ -109,6 +109,13 @@ struct Parser {
                     uint16_t unit;
                     if (!hex4(unit)) return false;
                     uint32_t cp = unit;
+                    if (unit >= 0xDC00 && unit <= 0xDFFF) {
+                        // Lone LOW surrogate: rejected symmetrically with the lone high
+                        // one (MINOR_ISSUES S1-1). Accepting it used to emit CESU-8 bytes
+                        // (ed b0 80 for \udc00) - not valid UTF-8, so no append at all.
+                        fail("lone surrogate escape");
+                        return false;
+                    }
                     if (unit >= 0xD800 && unit <= 0xDBFF) {  // high surrogate: need a low one
                         if (at_end() || peek() != '\\') { fail("lone surrogate escape"); return false; }
                         advance();

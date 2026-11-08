@@ -19,5 +19,9 @@ struct FakeClock : IClock {
     int64_t tz_offset_ms() override { return tz; }
 };
 
+// TU anchor for the FakeClock module (S1-6): behavior is fully inline above, the
+// anchor lives in tests/fakes/FakeClock.cpp.
+void fake_clock_anchor();
+
 }  // namespace testing
 }  // namespace poe2

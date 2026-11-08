@@ -172,6 +172,20 @@ TEST(session_independent_vital_timers_over_ticks) {
     CHECK_EQ(f.sender.recs[4].vk, static_cast<uint16_t>('2'));
 }
 
+TEST(session_debug_percent_rounds_half_even) {
+    // MINOR_ISSUES S3-5: the debug percent follows poe_scan.py's python round(), which
+    // is banker's rounding (ties to EVEN), not half-up. Health unreserved is 3888, so
+    // current = 486 gives 48600/3888 = 12.5 exactly: the .5 tie. Python prints 12 (the
+    // even neighbour); half-up printed 13. Pinned on BOTH debug lines, which share one
+    // rounding helper (percent_round).
+    Fix f("s4_tie_percent", poe2::config_defaults().scanner);
+    attach_and_drop_hp(f, 486);            // 486 * 100 = 48600, unreserved 3888
+    f.session.step();                       // tick: the debug values + press lines
+    CHECK(f.log_text().find("tick: Health 486/5000 (12%, reserved 1112)") != std::string::npos);
+    CHECK(f.log_text().find("Health 12% < 50%, key=1") != std::string::npos);
+    CHECK_EQ(f.sender.count(), 1);          // 48600 < 50*3888: the press is unchanged
+}
+
 TEST(session_no_presses_while_scanner_disabled) {
     Fix f("s4_off", poe2::config_defaults().scanner);
     f.proc.spawn(4242);

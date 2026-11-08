@@ -25,13 +25,14 @@ std::string hx(uint64_t v) {
     return buf;
 }
 
-// Debug value line (SPEC §7: vital values are debug-level only).
+// Debug value line (SPEC §7: vital values are debug-level only). The percent is
+// rounded half-even, exactly like poe_scan.py's round() on the live line.
 std::string values_line(const TickResult& t) {
     std::string s = "tick: ";
     for (int i = 0; i < kVitalCount; ++i) {
         const VitalVals& v = t.vals[i];
         const int64_t unres = unreserved_amount(v.total, v.flat, v.pct);
-        const int pr = unres > 0 ? static_cast<int>((100 * v.current + unres / 2) / unres) : 0;
+        const int pr = percent_round(v.current, unres);
         s += std::string(kVitalNames[i]) + " " + std::to_string(v.current) + "/" +
              std::to_string(v.total) + " (" + std::to_string(pr) + "%, reserved " +
              std::to_string(reserved_amount(v.total, v.flat, v.pct)) + ")";

@@ -31,5 +31,9 @@ inline int count_lines(const std::string& text) {
     return n;
 }
 
+// TU anchor for the test_tmp module (the FakeClock/FakeProcess pattern, S1-6): the
+// helpers above are inline, the anchor lives in tests/test_tmp.cpp.
+void test_tmp_anchor();
+
 }  // namespace testing
 }  // namespace poe2

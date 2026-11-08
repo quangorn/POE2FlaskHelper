@@ -203,10 +203,8 @@ ConfigResult config_parse(const std::string& text) {
                 }
             }
         }
-        // unknown vital names
-        static const char* const kVitalNamesArr[kVitalCount] = {
-            "Health", "Mana", "EnergyShield", "Ward", "Rage"};
-        check_unknown(*vt, kVitalNamesArr, kVitalCount, "vitals.", r.warnings);
+        // unknown vital names (S1-8: one name table, kVitalNames, not a second literal)
+        check_unknown(*vt, kVitalNames, kVitalCount, "vitals.", r.warnings);
     }
 
     // logging. Missing section = defaults, silent.

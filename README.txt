@@ -23,7 +23,7 @@ Tray status (tooltip over the icon)
   Scanner off          - module switched off, the game memory is not read at all;
   Waiting for game     - module on, the game process is not found yet;
   Attached (PID n)     - module on, the game values are being read;
-  Admin rights required- OpenProcess denied: the game is started as administrator, so
+  Admin rights required - OpenProcess denied: the game is started as administrator, so
    the helper must be started with the same rights (see "Game run as administrator").
    The status disappears on the next poll that opens the game successfully.
 When the hotkey is taken by another program the tooltip appends "hotkey Ctrl+9 busy";
@@ -52,7 +52,9 @@ offsets.json - game offsets, mandatory. After a game patch the values stop match
   next to the exe.
 logs/app.log - UTF-8 log next to the exe, with rotation (logging.level,
   logging.maxSizeKb, logging.keepFiles in config.json). Start, exit, config warnings,
-  hotkey registration, attach/detach, Offsets mismatch are written to the log.
+  hotkey registration, attach/detach, Offsets mismatch are written to the log. The
+  time zone lookup failure record (the log stamps fall back to UTC) is a debug line:
+  it appears in the log only when logging.level is debug.
 
 Game run as administrator
 -------------------------
@@ -77,7 +79,7 @@ Windows x64 и Visual C++ v14 x64 Redistributable
 ------
 Запустите POE2FlaskHelper.exe. Программа живёт целиком в трее и не создаёт окон. При
 первом запуске рядом с exe создаётся config.json со значениями по умолчанию.
-offsets.json обязателен и кладётся рядом с exe: при отсутствии, битом или неполном
+offsets.json обязателен и кладётся рядом с exe: при отсутствии, повреждённом или неполном
 файле программа показывает сообщение и выходит с кодом 2.
 
 Статус в трее (тултип над иконкой)
@@ -85,7 +87,7 @@ offsets.json обязателен и кладётся рядом с exe: при 
   Scanner off          - модуль выключен, память игры не читается вообще;
   Waiting for game     - модуль включён, процесс игры пока не найден;
   Attached (PID n)     - модуль включён, значения игры читаются;
-  Admin rights required- OpenProcess отклонён: игра запущена от администратора, и хелпер
+  Admin rights required - OpenProcess отклонён: игра запущена от администратора, и хелпер
    нужно запускать с теми же правами (см. "Игра, запущенная от администратора").
    Статус исчезает на следующем опросе, где процесс игры открылся успешно.
 При занятом хоткее тултип дополняется строкой "hotkey Ctrl+9 busy"; программа
@@ -107,14 +109,16 @@ config.json  - настройки: включение сканера при ст
   опроса, requireGameForeground, имена процессов, хоткей Ctrl+9, и для каждого
   Vital'а: enabled, клавиша, порог (1-100 %), cooldownMs. Файл читается один раз на
   старте: чтобы применить изменения, отредактируйте его и перезапустите программу.
-offsets.json - смещения игры, обязателен. После патча игры значения перестают
-  сходиться и в логе появляется "Offsets mismatch". Что делать: запустить
+offsets.json - смещения игры, обязателен. После патча игры смещения перестают
+  совпадать и в логе появляется "Offsets mismatch". Что делать: запустить
   find_offsets.py (python find_offsets.py --hp <HP> --mana <Mana> --es <ES>
   --current-hp <текущий HP> --tol 0 --save offsets.json, подробности в
   scanner/README.md) и положить новый файл рядом с exe.
 logs/app.log - лог в UTF-8 рядом с exe, с ротацией (logging.level,
   logging.maxSizeKb, logging.keepFiles в config.json). В лог пишутся старт, выход,
-  предупреждения конфига, регистрация хоткея, attach/detach, Offsets mismatch.
+  предупреждения конфига, регистрация хоткея, attach/detach, Offsets mismatch. Запись о
+  сбое поиска часовой зоны (штампы тогда в UTC) — debug-строка: она видна в логе только
+  при logging.level = debug.
 
 Игра, запущенная от администратора
 ----------------------------------

@@ -27,13 +27,13 @@ struct VitalSendState {
 
 // One key press produced by evaluate() (SPEC §4.7/§4.8). vk/extended feed
 // IKeySender::press; key/threshold/percent build the SPEC §7 debug line
-// "Health 23% < 50%, key=1". percent is the current % of unreserved, printed with
-// the same half-up rounding as the tick values line.
+// "Health 23% < 50%, key=1". percent is the current % of unreserved, printed with the
+// same half-even (python round()) rounding as the tick values line.
 struct VitalAction {
     int vital = 0;             // VitalIndex (Health..Rage)
     std::string key;           // config key string, e.g. "1"
     uint16_t vk = 0;           // VK from the keymap (parse_key)
-    bool extended = false;     // E0 prefix for NumPad (SPEC §4.8)
+    bool extended = false;     // E0 prefix for the arrow and NumPad keys (SPEC §4.8)
     int percent = 0;
     int threshold = 0;
 };

@@ -108,6 +108,11 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
     poe2::Paths paths = poe2::Paths::from_exe_path(to_utf8(buf.data()));
 
+    // SPEC §4.2 ("no file I/O on the main thread") is about the message loop, and this
+    // block complies with it: it is startup-only - it runs before the message loop is
+    // entered, before the tray window exists and before the scanner thread is started,
+    // so there is no UI to block and no other thread to stall (S1-4). Every log line
+    // written here goes to the async writer thread; main never writes the log file.
     // 1. config.json: read raw text, validate in memory, then start the logger
     //    with the validated logging options (SPEC §5).
     std::string cfg_text;
@@ -126,6 +131,13 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     poe2::Logger logger(paths.log_file(cres.cfg.logging.file), clock,
                         poe2::log_options(cres.cfg));
     logger.log(poe2::LogLevel::Info, "POE2FlaskHelper " APP_VERSION_STR " started");
+
+    // S1-12: the first log line above reads the zone through the clock; if
+    // GetDynamicTimeZoneInformation failed, stamps have been UTC. One debug record at
+    // startup, not one per line: SystemClock keeps the flag, main checks it once.
+    if (clock.tz_lookup_failed()) {
+        logger.log(poe2::LogLevel::Debug, poe2::tz_utc_debug_message());
+    }
 
     if (!logger.healthy()) {
         logger.log(poe2::LogLevel::Error, "cannot open log file in the exe directory");
