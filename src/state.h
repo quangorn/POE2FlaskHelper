@@ -46,12 +46,14 @@ struct AppStatus {
     std::string hotkey_text;   // registered hotkey string, e.g. "Ctrl+9"
 };
 
-// SPEC §4.3 tooltip strings: "Scanner off" / "Waiting for game" / "In menu / loading"
-// / "Attached (PID n)" (SPEC §8 adds the "Admin rights required" status for a denied
+// SPEC §4.3 tooltip strings: line 1 is the app name + project version, line 2 the
+// status "Scanner off" / "Waiting for game" / "In menu / loading" /
+// "Attached (PID n)" (SPEC §8 adds the "Admin rights required" status for a denied
 // OpenProcess).
 std::string phase_label(const AppStatus& st);
-// Tooltip text for Shell_NotifyIcon, clamped to the classic szTip limit (63 chars;
-// v4 allows 127, see the state.cpp note). hotkey_busy appends the busy status (SPEC §4.4).
+// Tooltip text for Shell_NotifyIcon: line 1 "POE2FlaskHelper <version>", line 2 the
+// phase status; clamped to the classic szTip limit (63 chars; v4 allows 127, see the
+// state.cpp note). hotkey_busy appends the busy status (SPEC §4.4).
 std::string tooltip_text(const AppStatus& st);
 
 struct MenuItem { std::string label; bool checked; uint32_t cmd; };

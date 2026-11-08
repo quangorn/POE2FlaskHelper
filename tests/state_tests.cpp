@@ -8,11 +8,20 @@
 #include "res_ids.h"
 #include "scanner_ctl.h"
 #include "state.h"
+#include "version.h"
 
 using poe2::AppStatus;
 using poe2::MenuItem;
 using poe2::Phase;
 using poe2::TrayCmd;
+
+namespace {
+
+// SPEC §4.3 (amended 2026-11-08): line 1 of the tooltip is the app name + project
+// version, the phase status follows on line 2.
+std::string tip_head() { return std::string("POE2FlaskHelper " APP_VERSION_STR) + "\n"; }
+
+}  // namespace
 
 TEST(tray_menu_toggle_item_off) {
     // SPEC §4.3 (amended 2026-11-07): ONE row whose text and checkmark follow the
@@ -52,21 +61,21 @@ TEST(menu_command_routing) {
 TEST(tooltip_all_states) {
     AppStatus st;
     st.phase = Phase::ScannerOff;
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Scanner off"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Scanner off");
 
     st.phase = Phase::WaitingForGame;
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Waiting for game");
 
     // SPEC §4.6 item 5 / §4.3 (added 2026-11-08): the game is open, not in a zone.
     st.phase = Phase::InMenu;
     st.pid = 0;   // apply_scanner_snapshot keeps pid 0 outside Attached (SPEC §4.3)
-    CHECK_EQ(poe2::tooltip_text(st), std::string("In menu / loading"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "In menu / loading");
 
     st.phase = Phase::Attached;
     st.pid = 1234;
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 1234)"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Attached (PID 1234)");
     st.pid = 4294967295u;  // largest PID on Windows
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 4294967295)"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Attached (PID 4294967295)");
 }
 
 TEST(tooltip_menu_state_with_hotkey_busy) {
@@ -77,13 +86,14 @@ TEST(tooltip_menu_state_with_hotkey_busy) {
     CHECK(poe2::apply_scanner_snapshot(st, Phase::InMenu, 4242));
     CHECK(st.phase == Phase::InMenu);
     CHECK_EQ(st.pid, 0u);
-    CHECK_EQ(poe2::tooltip_text(st), std::string("In menu / loading"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "In menu / loading");
     st.hotkey_busy = true;
     st.hotkey_text = "Ctrl+9";
     const std::string t = poe2::tooltip_text(st);
-    CHECK(t.find("In menu / loading") == 0);
+    CHECK(t.find(tip_head()) == 0);  // line 1: the app name + version (SPEC §4.3)
+    CHECK(t.find("In menu / loading") != std::string::npos);
     CHECK(t.find("hotkey Ctrl+9 busy") != std::string::npos);
-    CHECK(t.size() <= 63);
+    CHECK(t.size() <= 127);  // v4 szTip budget (state.cpp note)
     st.scanner_enabled = false;
     CHECK(poe2::apply_scanner_snapshot(st, Phase::InMenu, 4242));
     CHECK(st.phase == Phase::ScannerOff);
@@ -97,42 +107,44 @@ TEST(tooltip_admin_required_status) {
     st.scanner_enabled = true;
     st.phase = Phase::AdminRequired;
     CHECK_EQ(poe2::phase_label(st), std::string("Admin rights required"));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Admin rights required"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Admin rights required");
     // The admin string fits the szTip buffer with room for the hotkey status.
-    CHECK(poe2::tooltip_text(st).size() <= 63);
+    CHECK(poe2::tooltip_text(st).size() <= 127);
 
     // Recovery: the snapshot of a successful poll overwrites it.
     CHECK(poe2::apply_scanner_snapshot(st, Phase::Attached, 1234));
     CHECK(st.phase == Phase::Attached);
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 1234)"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Attached (PID 1234)");
     CHECK(poe2::apply_scanner_snapshot(st, Phase::WaitingForGame, 0));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Waiting for game");
 
     // Disabling the module clears the admin status with every other phase.
     st.phase = Phase::AdminRequired;
     st.scanner_enabled = false;
     CHECK(poe2::apply_scanner_snapshot(st, Phase::AdminRequired, 0));
     CHECK(st.phase == Phase::ScannerOff);
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Scanner off"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Scanner off");
 }
 
 TEST(tooltip_admin_required_with_hotkey_busy) {
     // SPEC §4.4 + §8: a taken combo appends to the admin status, the phase text stays
-    // first, the string is clamped to szTip (64 wchar).
+    // first, the string is clamped to the v4 szTip budget (127 wchar, state.cpp note).
     AppStatus st;
     st.phase = Phase::AdminRequired;
     st.hotkey_busy = true;
     st.hotkey_text = "Ctrl+9";
     const std::string t = poe2::tooltip_text(st);
-    CHECK(t.find("Admin rights required") == 0);
+    CHECK(t.find(tip_head()) == 0);  // line 1 is the header (SPEC §4.3)
+    CHECK(t.find("Admin rights required") != std::string::npos);
     CHECK(t.find("hotkey Ctrl+9 busy") != std::string::npos);
-    CHECK(t.size() <= 63);
+    CHECK(t.size() <= 127);  // v4 szTip budget (state.cpp note)
 
     // The clamp also holds with an overflowing hotkey string.
     st.hotkey_text = "Ctrl+Alt+Shift+Win+F24 plus some extra text to overflow 63 chars";
     const std::string c = poe2::tooltip_text(st);
-    CHECK(c.size() <= 63);
-    CHECK(c.find("Admin rights required") == 0);
+    CHECK(c.size() <= 127);  // v4 szTip budget (state.cpp note)
+    CHECK(c.find(tip_head()) == 0);
+    CHECK(c.find("Admin rights required") != std::string::npos);
 }
 
 TEST(tooltip_hotkey_busy_status) {
@@ -141,9 +153,10 @@ TEST(tooltip_hotkey_busy_status) {
     st.hotkey_busy = true;
     st.hotkey_text = "Ctrl+9";
     const std::string t = poe2::tooltip_text(st);
-    CHECK(t.find("Scanner off") == 0);
+    CHECK(t.find(tip_head()) == 0);  // line 1 is the header (SPEC §4.3)
+    CHECK(t.find("Scanner off") != std::string::npos);
     CHECK(t.find("hotkey Ctrl+9 busy") != std::string::npos);
-    CHECK(t.size() <= 63);  // Shell_NotifyIcon szTip is WCHAR[64]
+    CHECK(t.size() <= 127);  // v4 szTip budget (state.cpp note)
 
     AppStatus attached;
     attached.phase = Phase::Attached;
@@ -151,7 +164,8 @@ TEST(tooltip_hotkey_busy_status) {
     attached.hotkey_busy = true;
     attached.hotkey_text = "Ctrl+9";
     const std::string a = poe2::tooltip_text(attached);
-    CHECK(a.find("Attached (PID 777)") == 0);
+    CHECK(a.find(tip_head()) == 0);
+    CHECK(a.find("Attached (PID 777)") != std::string::npos);
     CHECK(a.find("busy") != std::string::npos);
 }
 
@@ -161,8 +175,9 @@ TEST(tooltip_clamped_to_sztip) {
     st.hotkey_busy = true;
     st.hotkey_text = "Ctrl+Alt+Shift+Win+F24 plus some extra text to overflow 63 chars";
     const std::string t = poe2::tooltip_text(st);
-    CHECK(t.size() <= 63);
-    CHECK(t.find("Scanner off") == 0);
+    CHECK(t.size() <= 127);  // v4 szTip budget (state.cpp note)
+    CHECK(t.find(tip_head()) == 0);  // line 1 is the header (SPEC §4.3)
+    CHECK(t.find("Scanner off") != std::string::npos);
 }
 
 TEST(state_to_wav_resource_id) {

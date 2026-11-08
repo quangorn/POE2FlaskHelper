@@ -20,6 +20,7 @@ missing, broken or incomplete, the program shows a message and exits with code 2
 
 Tray status (tooltip over the icon)
 -----------------------------------
+Line 1 is always "POE2FlaskHelper <version>"; the status follows on line 2:
   Scanner off          - module switched off, the game memory is not read at all;
   Waiting for game     - module on, the game process is not found yet;
   In menu / loading    - module on, the game process is open, the game is not in a zone
@@ -99,6 +100,7 @@ offsets.json обязателен и кладётся рядом с exe: при 
 
 Статус в трее (тултип над иконкой)
 ----------------------------------
+Первой строкой всегда "POE2FlaskHelper <версия>", статус — второй строкой:
   Scanner off          - модуль выключен, память игры не читается вообще;
   Waiting for game     - модуль включён, процесс игры пока не найден;
   In menu / loading    - модуль включён, процесс игры открыт, игры в зоне нет (главное

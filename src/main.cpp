@@ -78,7 +78,7 @@ static void toggle_scanner(poe2::AppStatus& st, poe2::Scanner& scanner,
     const uint16_t wav = poe2::set_scanner_enabled(st, enable);
     scanner.set_enabled(enable);
     logger.log(poe2::LogLevel::Info, enable ? "scanner enabled" : "scanner disabled");
-    if (!poe2::play_wav(wav, hInst, volume)) {
+    if (!poe2::play_wav(wav, hInst, volume, logger)) {
         // SPEC §4.5: resource error is a warning, the toggle already happened.
         logger.log(poe2::LogLevel::Warn,
                    "sound resource failed (PlaySound), toggle proceeds without sound");

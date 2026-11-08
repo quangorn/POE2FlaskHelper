@@ -62,6 +62,13 @@ run_build() {
     return $rc
 }
 
+# Full clean build on every run (added 2026-11-08): ninja + localized cl does not
+# track /showIncludes header dependencies (the deps arrive as Russian "Примечание:
+# включение файла"), so an incremental build can keep stale objects and ship stale
+# binaries - measured live (a modified sound.cpp was not recompiled, the exe kept the
+# old behavior). The sources are small, a full rebuild costs tens of seconds.
+rm -rf build
+
 if ! run_build; then
     echo "FATAL: cmake configure/build failed" >&2
     exit 1

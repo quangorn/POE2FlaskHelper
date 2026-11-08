@@ -1,13 +1,16 @@
 #include "state.h"
 
+#include "version.h"   // APP_VERSION_STR (build/version.h, generated from project VERSION)
+
 namespace poe2 {
 
 namespace {
 
-// The classic (pre-v4) Shell_NotifyIconW szTip is WCHAR[64]; NOTIFYICON_VERSION_4
-// allows 127 chars. Clamping to the classic limit keeps the tooltip valid when
-// NIM_SETVERSION(v4) fails (tray.cpp logs that case as a warning).
-constexpr size_t kTipMax = 63;
+// NOTIFYICON_VERSION_4 szTip carries 127 wchar and "\n" as the line separator. The
+// header line + status + hotkey suffix fit this budget. On the classic path
+// (NIM_SETVERSION failed, tray.cpp warns) Explorer shows a single line truncated
+// at 63 - a display degradation of the fallback, not a buffer overflow.
+constexpr size_t kTipMax = 127;
 
 }  // namespace
 
@@ -23,7 +26,10 @@ std::string phase_label(const AppStatus& st) {
 }
 
 std::string tooltip_text(const AppStatus& st) {
-    std::string t = phase_label(st);
+    // v4 szTip carries "\n" as the line separator: the first line is the app name
+    // with the project version, the second line is the status (SPEC §4.3).
+    std::string t = std::string("POE2FlaskHelper " APP_VERSION_STR) + "\n";
+    t += phase_label(st);
     if (st.hotkey_busy) {
         // SPEC §4.4: a taken combo is a warning status shown in the tooltip, not
         // a fatal error - the app continues working.

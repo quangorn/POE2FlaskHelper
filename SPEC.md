@@ -309,9 +309,13 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
 - Фикс 2026-11-08: при `NOTIFYICON_VERSION_4` стандартный тултип подавлен по
   умолчанию (NOTIFYICONDATA szTip Remarks), наведение на иконку ничего не показывало.
   `NIF_SHOWTIP` добавлен в `uFlags` при `NIM_ADD` и `NIM_MODIFY` — тултип появляется
-  при наведении. Ограничение строки остаётся классическим (63 символа), v4-раскладка
-  позволила бы 127; кламп 63 сохраняется ради совместимости, когда `NIM_SETVERSION`
-  не прошёл (warn-путь `tray.cpp`).
+  при наведении.
+- Изменено 2026-11-08: первой строкой тултипа — имя приложения и версия проекта
+  (`POE2FlaskHelper <version>`, из `project VERSION` через build/version.h), статус
+  второй строкой. Разделитель `\n` работает в v4-раскладке (szTip 128 wchar, кламп
+  127); при классическом пути (v4 не установлен, warn-путь `tray.cpp`) показывается
+  одна линия, обрезанная Explorer'ом на 63 символа — деградация fallback-а, не
+  переполнение буфера.
 
 ### 4.4 Хоткей
 
@@ -338,6 +342,18 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
   для будущего reload конфига на лету. Non-PCM16/битый WAV — масштабирование
   пропускается, играет оригинал через `SND_RESOURCE` (warn-путь §8). `volume: 0` —
   тишина. Системная громкость не трогается.
+- Измерено 2026-11-08 (причина первого builds, игравшего 100 %): c `SND_MEMORY | SND_ASYNC`
+  PlaySound НЕ копирует буфер — «the memory buffer that contains the sound must remain
+  valid until the sound has completed playing» (документация PlaySound). Масштабированные
+  байты держатся в модульном буфере `sound.cpp` (main thread, §4.2), заменяются следующим
+  проигрыванием, `stop_sound` чистит после purge-вызова. Стартовый кэш gain не делается
+  (per-play пересчёт — шов reload).
+- Измерено 2026-11-08 (поиск ресурса): app.rc компилирует `WAVE` как ИМЕНОВАННЫЙ тип
+  "WAVE" (не ordinal RT_RIFF 11), ресурсы с языком 0x409 (`Translation`).
+  `FindResourceW` раскрывается в `FindResourceExW` с языком системы по умолчанию и на
+  не-английской системе возвращает NULL; поиск `FindResourceExW(hInst, L"WAVE",
+  MAKEINTRESOURCEW(id), MAKELANGID(ENGLISH, US))` находится (измерено с gle=1813
+  TYPE_NOT_FOUND и EnumResourceTypes: типы WAVE,#3,#14,#16,#24).
 
 ### 4.6 Сканер
 

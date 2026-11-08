@@ -15,6 +15,7 @@
 #include "state.h"
 #include "synthetic_layout.h"
 #include "test_tmp.h"
+#include "version.h"
 #include "fakes/FakeClock.h"
 #include "fakes/FakeMemory.h"
 #include "fakes/FakeProcess.h"
@@ -28,6 +29,13 @@ using poe2::ScannerCfg;
 using poe2::ScannerCtl;
 using poe2::ScannerSession;
 using poe2::testing::FakeClock;
+
+namespace {
+
+// SPEC §4.3 (amended 2026-11-08): tooltip line 1 = app name + project version.
+std::string tip_head() { return std::string("POE2FlaskHelper " APP_VERSION_STR) + "\n"; }
+
+}  // namespace
 using poe2::testing::FakeMemFactory;
 using poe2::testing::FakeMemory;
 using poe2::testing::FakeProcess;
@@ -125,7 +133,7 @@ TEST(open_access_denied_is_error_and_admin_status) {
     AppStatus st;
     st.scanner_enabled = true;
     CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Admin rights required"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Admin rights required");
 
     // Polling continues with the admin status, and the error line is rate-limited to
     // one per 5 s (SPEC §7 discipline for a repeating failure).
@@ -145,7 +153,7 @@ TEST(open_access_denied_is_error_and_admin_status) {
     CHECK(phase_of(f.ctl) == Phase::Attached);
     CHECK_EQ(f.ctl.pid.load(), 777u);
     CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 777)"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Attached (PID 777)");
     CHECK(f.log_text().find("attached PID 777") != std::string::npos);
     CHECK_EQ(f.count("OpenProcess denied"), 2);  // the recovery adds no admin line
 }
@@ -165,7 +173,7 @@ TEST(other_open_failures_keep_the_waiting_status) {
     AppStatus st;
     st.scanner_enabled = true;
     CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Waiting for game");
 }
 
 TEST(admin_status_clears_when_the_game_disappears) {
@@ -185,7 +193,7 @@ TEST(admin_status_clears_when_the_game_disappears) {
     AppStatus st;
     st.scanner_enabled = true;
     CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Waiting for game");
 
     // And a game that becomes openable later attaches normally.
     f.proc.spawn(888);
@@ -193,9 +201,9 @@ TEST(admin_status_clears_when_the_game_disappears) {
     f.factory.open_err = 0;
     f.session.step();
     CHECK(phase_of(f.ctl) == Phase::Attached);
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Waiting for game");
     CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 888)"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "Attached (PID 888)");
 }
 
 TEST(scanner_chain_loss_goes_back_to_waiting_and_reuses_cache) {
@@ -257,7 +265,7 @@ TEST(scanner_menu_state_is_quiet_and_keeps_the_handle) {
     AppStatus st;
     st.scanner_enabled = true;
     CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
-    CHECK_EQ(poe2::tooltip_text(st), std::string("In menu / loading"));
+    CHECK_EQ(poe2::tooltip_text(st), tip_head() + "In menu / loading");
 
     const int attached_reads = f.mem->reads();
     for (int i = 0; i < 12; ++i) f.session.step();   // twelve menu polls
