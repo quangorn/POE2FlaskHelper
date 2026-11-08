@@ -50,7 +50,7 @@ int16_t sample_at(const std::vector<uint8_t>& wav, size_t i) {
 TEST(wav_gain_scaling) {
     auto w = make_wav({1000, -1000, 32767, -32768}, 1);
     auto half = apply_pcm_gain(w, 50);
-    CHECK(!half.empty());
+    REQUIRE(!half.empty());  // stops the test on an empty result: no OOB reads below
     CHECK_EQ(sample_at(half, 0), int16_t(500));
     CHECK_EQ(sample_at(half, 1), int16_t(-500));
     CHECK_EQ(sample_at(half, 2), int16_t(16383));   // truncation toward zero
@@ -63,7 +63,7 @@ TEST(wav_gain_scaling) {
 TEST(wav_gain_zero_and_full) {
     auto w = make_wav({12345, -12345}, 1);
     auto zero = apply_pcm_gain(w, 0);  // volume 0 = silence, the buffer stays valid
-    CHECK(!zero.empty());
+    REQUIRE(!zero.empty());
     CHECK_EQ(sample_at(zero, 0), int16_t(0));
     CHECK_EQ(sample_at(zero, 1), int16_t(0));
     auto full = apply_pcm_gain(w, 100);
@@ -80,12 +80,15 @@ TEST(wav_gain_keeps_headers_and_extra_chunks) {
     w2.insert(w2.end(), {'t', 'a', 'g', '!', 'x', 0});    // body + word-align pad at 44..49
     w2.insert(w2.end(), w.begin() + 36, w.end());         // data chunk at 50
     auto out = apply_pcm_gain(w2, 50);
-    CHECK(!out.empty());
+    REQUIRE(!out.empty());
     CHECK_EQ(out.size(), w2.size());                      // byte layout preserved
     // Everything before the scaled payload (RIFF header, fmt, LIST) is unchanged.
     CHECK(std::vector<uint8_t>(out.begin(), out.begin() + 54)
           == std::vector<uint8_t>(w2.begin(), w2.begin() + 54));
-    CHECK_EQ(sample_at(out, 0), int16_t(100));            // data chunk scaled
+    // data chunk starts at 50 in w2 (RIFF 12 + fmt 24 + LIST 14), payload at 58.
+    int16_t scaled = static_cast<int16_t>(static_cast<uint16_t>(out[58])
+                                          | (static_cast<uint16_t>(out[59]) << 8));
+    CHECK_EQ(scaled, int16_t(100));                       // data chunk scaled
 }
 
 TEST(wav_non_pcm_returns_empty) {
@@ -111,7 +114,7 @@ TEST(wav_odd_data_chunk_scales_whole_samples_only) {
     w[40] = 3;  // data chunk size field (data chunk starts at pos 36, size at 40)
     w.push_back(0x77);
     auto out = apply_pcm_gain(w, 50);
-    CHECK(!out.empty());
+    REQUIRE(!out.empty());
     CHECK_EQ(out.size(), w.size());
     CHECK_EQ(sample_at(out, 0), int16_t(100));  // whole sample scaled
     CHECK_EQ(out.back(), 0x77);                 // the odd trailing byte untouched

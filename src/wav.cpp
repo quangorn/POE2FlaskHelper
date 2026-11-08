@@ -46,8 +46,9 @@ std::vector<uint8_t> apply_pcm_gain(const std::vector<uint8_t>& bytes, int perce
         if (body + size > n) break;  // truncated trailing chunk -> not a valid WAV
         if (std::memcmp(out.data() + pos, "fmt ", 4) == 0) {
             if (size >= 16) {
-                // format 1 = PCM, 16 bits per sample: the asset format (backlog note)
-                fmt_pcm16 = rd16(out.data() + body) == 1 && rd16(out.data() + body + 6) == 16;
+                // fmt body: format@0, channels@2, rate@4, byteRate@8, blockAlign@12,
+                // bitsPerSample@14. format 1 = PCM, 16 bits: the asset format.
+                fmt_pcm16 = rd16(out.data() + body) == 1 && rd16(out.data() + body + 14) == 16;
             }
         } else if (std::memcmp(out.data() + pos, "data", 4) == 0) {
             if (fmt_pcm16) {

@@ -88,6 +88,9 @@ inline int run_all() {
         } else {
             printf("[ OK ] %s\n", t.first);
         }
+        fflush(stdout);  // a crash inside a test must not eat the progress (reviewed 2026-11-08:
+                         // ninja + localized cl do not track /showIncludes deps, an incremental
+                         // poe2_tests rebuild can run a stale exe; flush keeps the trail readable)
     }
     int total = static_cast<int>(tests().size());
     printf("%d/%d tests passed\n", total - failed, total);
