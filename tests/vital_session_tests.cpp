@@ -55,7 +55,7 @@ TEST(session_presses_fire_on_valid_ticks) {
     CHECK_EQ(f.sender.recs[0].vk, static_cast<uint16_t>('1'));   // Health key "1"
     CHECK_EQ(f.sender.recs[0].extended, false);
     CHECK_EQ(f.sender.recs[0].t, f.clock.now_ms());              // stamped on this tick
-    CHECK(f.log_text().find("Health 39% < 50%, key=1") != std::string::npos);
+    CHECK(f.log_text().find("Health 39% <= 50%, key=1") != std::string::npos);
     // The value line is the debug values line of the same tick (SPEC §7).
     CHECK(f.log_text().find("tick: Health 1500/5000") != std::string::npos);
 }
@@ -73,7 +73,7 @@ TEST(session_cooldown_between_ticks_and_foreground_flip) {
     CHECK_EQ(f.count(", key=1\n"), 1);   // no extra press line
     CHECK_EQ(f.count(" held: "), 1);      // SPEC §4.7 amendment: below threshold inside
                                           // the cooldown -> ONE info held line
-    CHECK(f.log_text().find("Health 26% < 50%, key=1 held: cooldown left 950 ms")
+    CHECK(f.log_text().find("Health 26% <= 50%, key=1 held: cooldown left 950 ms")
           != std::string::npos);
 
     f.clock.advance(950);                // exactly 1000 ms from the last send
@@ -135,29 +135,64 @@ TEST(session_presses_when_foreground_not_required) {
 }
 
 TEST(session_info_level_shows_presses_and_held_hides_values) {
-    // SPEC §7 (amended 2026-11-08): at level "info" the press lines and the ONE held
-    // line per cooldown window ARE written; the per-tick value lines stay debug-only.
+    // SPEC §7 (amended 2026-11-08, plan-release.md items 3-4): at level "info" the press
+    // lines and the ONE held line per cooldown window ARE written; the FIRST values line
+    // of the session is info (the attach entry), every later tick stays debug-only.
     Fix f("s4_info_level", poe2::config_defaults().scanner,
           poe2::config_defaults(), LogLevel::Info);
     attach_and_drop_hp(f, 1000);
-    f.session.step();                    // fires a press
+    f.session.step();                    // first tick after attach: fires a press
     CHECK_EQ(f.sender.count(), 1);       // presses continue at info level
     const std::string t1 = f.log_text();
-    CHECK(t1.find("Health 26% < 50%, key=1\n") != std::string::npos);  // press line at info
-    CHECK(t1.find("tick:") == std::string::npos);                       // no values lines
-    CHECK(t1.find("Health 1000/5000") == std::string::npos);
+    CHECK(t1.find("Health 26% <= 50%, key=1\n") != std::string::npos);  // press line at info
+    CHECK(t1.find("tick: Health 1000/5000") != std::string::npos);      // first values line: info
     CHECK(t1.find("chain OK") == std::string::npos);                    // chain steps stay debug
     CHECK(t1.find("attached PID 4242") != std::string::npos);           // info lines stay
 
     f.clock.advance(50);                 // inside the cooldown: the window's ONE line
     f.session.step();
     const std::string t2 = f.log_text();
-    CHECK(t2.find("Health 26% < 50%, key=1 held: cooldown left 950 ms") != std::string::npos);
+    CHECK(t2.find("Health 26% <= 50%, key=1 held: cooldown left 950 ms") != std::string::npos);
     CHECK_EQ(f.count(" held: "), 1);
+    CHECK_EQ(f.count("tick:"), 1);       // the later ticks stay debug-only
     CHECK_EQ(f.sender.count(), 1);       // held by the cooldown: no press
     f.clock.advance(100);                // same window: no second line
     f.session.step();
     CHECK_EQ(f.count(" held: "), 1);
+    CHECK_EQ(f.count("tick:"), 1);
+}
+
+// plan-release.md item 4 (SPEC §7): the "first values at info" right is per-session -
+// detach (scanner off / chain break / game close) and every InMenu entry reset it, so
+// the next zone entry logs its own first tick at info.
+TEST(session_first_values_info_resets_on_menu_and_detach) {
+    Fix f("s4_first_values", poe2::config_defaults().scanner,
+          poe2::config_defaults(), LogLevel::Info);
+    attach_and_drop_hp(f, 1000);
+    f.session.step();                    // first tick: values at info
+    CHECK_EQ(f.count("tick:"), 1);
+    f.set_current(kHealth, 4000);        // above threshold: the ticks run, presses stop
+    f.clock.advance(1000);
+    f.session.step();                    // debug-only: the right was spent
+    CHECK_EQ(f.count("tick:"), 1);
+
+    f.set_in_zone(false);
+    f.session.step();                    // InMenu entry (SPEC §4.6 item 5): flag resets
+    REQUIRE(phase_of(f.ctl) == Phase::InMenu);
+    f.set_in_zone(true);
+    f.session.step();                    // the menu poll sees the zone: back to Attached
+    REQUIRE(phase_of(f.ctl) == Phase::Attached);
+    f.session.step();                    // first zone tick after re-entry: info again
+    CHECK_EQ(f.count("tick:"), 2);
+
+    f.ctl.enabled.store(false);
+    f.session.step();                    // detach (scanner disabled): flag resets
+    REQUIRE(phase_of(f.ctl) == Phase::ScannerOff);
+    f.ctl.enabled.store(true);
+    f.session.step();                    // re-attach the same live PID
+    REQUIRE(phase_of(f.ctl) == Phase::Attached);
+    f.session.step();                    // first tick after re-attach: info
+    CHECK_EQ(f.count("tick:"), 3);
 }
 
 TEST(session_held_line_rearms_after_detach_and_reattach) {
@@ -231,8 +266,21 @@ TEST(session_debug_percent_rounds_half_even) {
     attach_and_drop_hp(f, 486);            // 486 * 100 = 48600, unreserved 3888
     f.session.step();                       // tick: the debug values + press lines
     CHECK(f.log_text().find("tick: Health 486/5000 (12%, reserved 1112)") != std::string::npos);
-    CHECK(f.log_text().find("Health 12% < 50%, key=1") != std::string::npos);
+    CHECK(f.log_text().find("Health 12% <= 50%, key=1") != std::string::npos);
     CHECK_EQ(f.sender.count(), 1);          // 48600 < 50*3888: the press is unchanged
+}
+
+// plan-release.md item 3 (SPEC §7 amendment, 2026-11-08): the press line prints "<="
+// because the half-even ROUNDED percent can equal the threshold of a legal press. Health
+// unreserved 3888, threshold 50: current = 1942 gives 194200/3888 = 49.94 -> displayed
+// 50, while the strict core check 194200 < 50*3888 = 194400 fires. The old "< 50%" read
+// as a contradiction; "<= 50%" matches the fact.
+TEST(session_press_line_shows_le_at_rounded_percent_equal_threshold) {
+    Fix f("s4_le_percent", poe2::config_defaults().scanner);
+    attach_and_drop_hp(f, 1942);            // 49.94% -> displayed 50% == threshold
+    f.session.step();
+    CHECK_EQ(f.sender.count(), 1);          // the strict comparison fires
+    CHECK(f.log_text().find("Health 50% <= 50%, key=1") != std::string::npos);
 }
 
 TEST(session_no_presses_while_scanner_disabled) {

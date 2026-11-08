@@ -53,6 +53,7 @@ static const char* kSpecConfig = R"(
 TEST(config_spec_file_defaults) {
     auto r = config_parse(kSpecConfig);
     CHECK(!r.jsonBroken);
+    CHECK(!r.invalid);  // the SPEC layout is the valid schema, no unknown keys
     CHECK_EQ(r.warnings.size(), 0u);
     const Config& c = r.cfg;
     CHECK_EQ(c.configVersion, 1);
@@ -80,6 +81,7 @@ TEST(config_spec_file_defaults) {
 TEST(config_missing_keys_defaults) {
     auto r = config_parse("{}");
     CHECK(!r.jsonBroken);
+    CHECK(!r.invalid);  // missing sections are silent, defaults apply
     CHECK_EQ(r.warnings.size(), 0u);  // missing sections are silent, defaults apply
     CHECK(cfg_eq(r.cfg, config_defaults()));  // all sections untouched = defaults
     auto one = config_parse(R"({"scanner":{"pollIntervalMs":100}})");
@@ -88,19 +90,28 @@ TEST(config_missing_keys_defaults) {
     CHECK_EQ(one.cfg.vitals[poe2::kHealth].threshold, 50);  // rest stays default
 }
 
-TEST(config_extra_keys_warn_ignored) {
-    auto r = config_parse(R"({"foo":1,"bar":2,
-        "hotkeys":{"x":1},"logging":{"y":2},"vitals":{"Fire":{}}})");
+// plan-release.md item 2 (SPEC §5 amendment, 2026-11-08): an unknown key at ANY level
+// makes the whole config invalid - root, hotkeys, scanner, sound, a vital section field,
+// an unknown vital name, logging. The paths arrive in the core check order (sections first,
+// the vitals name table after the vital sections, the root keys last); values are untouched.
+TEST(config_unknown_keys_invalid_all_levels) {
+    auto r = config_parse(R"({
+        "foo":1,
+        "hotkeys":{"x":1},
+        "scanner":{"bar":2},
+        "sound":{"mute":true},
+        "vitals":{"Fire":{},"Health":{"baz":3}},
+        "logging":{"y":2}})");
     CHECK(!r.jsonBroken);
-    CHECK_EQ(r.warnings.size(), 5u);
-    // Values stay at defaults: unknown keys must not change anything.
+    CHECK(r.invalid);
+    const std::vector<std::string> want{"hotkeys.x", "scanner.bar", "sound.mute",
+                                        "vitals.Health.baz", "vitals.Fire",
+                                        "logging.y", "foo"};
+    CHECK_EQ(r.unknown_keys, want);
+    CHECK_EQ(r.warnings.size(), 0u);  // the config is rejected as a whole, no value warnings
+    // Values stay at defaults: an invalid config is never applied.
     CHECK_EQ(r.cfg.scanner.pollIntervalMs, 50);
     CHECK_EQ(r.cfg.logging.maxSizeKb, 1024);
-    bool all_unknown = true;
-    for (const auto& w : r.warnings) {
-        if (w.find("unknown key") == std::string::npos) all_unknown = false;
-    }
-    CHECK(all_unknown);
 }
 
 TEST(config_invalid_values_reset_to_default) {
@@ -211,7 +222,9 @@ TEST(config_sound_volume) {
     CHECK_EQ(zero.warnings.size(), 0u);
     CHECK_EQ(zero.cfg.sound.volume, 0);
     auto unk = config_parse(R"({"sound":{"mute":true}})");      // unknown key of the section
-    CHECK_EQ(unk.warnings.size(), 1u);
+    CHECK(unk.invalid);                                          // plan-release.md item 2
+    CHECK_EQ(unk.unknown_keys[0], std::string("sound.mute"));
+    CHECK_EQ(unk.warnings.size(), 0u);
     CHECK_EQ(unk.cfg.sound.volume, 100);
     auto sec = config_parse(R"({"sound":5})");                  // section is not an object
     CHECK_EQ(sec.warnings.size(), 1u);
@@ -221,6 +234,7 @@ TEST(config_sound_volume) {
     c.sound.volume = 25;
     auto rt = config_parse(config_serialize(c));
     CHECK_EQ(rt.warnings.size(), 0u);
+    CHECK(!rt.invalid);
     CHECK(cfg_eq(rt.cfg, c));
 }
 
@@ -236,6 +250,7 @@ TEST(config_first_run_creates_default_file) {
     CHECK(poe2::read_text_file(cfg.string(), text));
     auto r = config_parse(text);
     CHECK(!r.jsonBroken);
+    CHECK(!r.invalid);
     CHECK_EQ(r.warnings.size(), 0u);
     CHECK_EQ(r.cfg.scanner.pollIntervalMs, 50);
     CHECK_EQ(r.cfg.toggleHotkey, std::string("Ctrl+9"));
@@ -251,6 +266,7 @@ TEST(config_serialize_round_trip_modified) {
     c.logging.level = "debug";
     auto r = config_parse(config_serialize(c));
     CHECK(!r.jsonBroken);
+    CHECK(!r.invalid);
     CHECK_EQ(r.warnings.size(), 0u);
     CHECK_EQ(r.cfg.toggleHotkey, std::string("Shift+Alt+F5"));
     CHECK_EQ(r.cfg.scanner.pollIntervalMs, 100);

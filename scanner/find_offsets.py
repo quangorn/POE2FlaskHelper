@@ -50,6 +50,11 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")     # SystemExit/argparse пишут в stderr
 
+# Import AFTER the re-exec guard (the pattern of find_vital.py): importing poe_scan before
+# the guard fires poe_scan's own module-level guard, which os.execv's the interpreter onto
+# poe_scan.py with find_offsets' argv — find_offsets.py never runs under cygwin python.
+import poe_scan as ps
+
 PROCESS_VM_READ = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -1042,13 +1047,21 @@ def main():
         ap.error("нужны --hp, --mana и --es")
 
     pid = args.pid
+    exe_path = None
     if not pid:
         pids = find_pid()
         if not pids:
             print("процесс игры не найден — запустите PathOfExile.exe")
             raise SystemExit(2)
         pid = pids[0][1]
+        exe_path = pids[0][0]
         print("найдены процессы:", pids)
+    if exe_path is None:
+        exe_path = ps.image_path(pid)
+    gv_full = ps.game_version(exe_path, pid)
+    gv = ps.game_version_short(gv_full)
+    print(f"GameVersion {gv} (FileVersion {gv_full})" if gv_full
+          else "GameVersion: источник не найден (logs/LatestClient.txt, fallback VERSIONINFO)")
 
     mem = LiveMem(pid)
     regions = mem.regions()
@@ -1135,9 +1148,19 @@ def main():
         if sig is None:
             print(f"{args.save} не записан: подтверждённого расклада нет")
         else:
-            data = {"HealthOff": sig[0], "TotalOff": sig[3], "ManaOff": sig[1] + sig[3],
-                    "ESOff": sig[2] + sig[3], "BackPtrOff": sig[5],
-                    "Score": d["Score"]}
+            data = {}
+            if gv:
+                # версия патча игры первой строкой: статична, как смещения; имя релизного архива
+                data["GameVersion"] = gv
+            else:
+                print(f"WARN: GameVersion не записан — источник версии не найден "
+                      f"(logs/LatestClient.txt, fallback VERSIONINFO)")
+            data["HealthOff"] = sig[0]
+            data["TotalOff"] = sig[3]
+            data["ManaOff"] = sig[1] + sig[3]
+            data["ESOff"] = sig[2] + sig[3]
+            data["BackPtrOff"] = sig[5]
+            data["Score"] = d["Score"]
             if sig[6] is not None:
                 data["ReservedOff"] = sig[6]
             if sig[4] is not None:

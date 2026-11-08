@@ -59,10 +59,13 @@ std::string phase_name(Phase p) {
     }
 }
 
-// SPEC §7 info press line, exact format: "Health 23% < 50%, key=1".
+// SPEC §7 (amended 2026-11-08, plan-release.md item 3): "Health 23% <= 50%, key=1". The
+// comparison is strict (current*100 < threshold*unreserved), the printed percent is the
+// half-even rounded one, so a rounded value CAN equal the threshold while the press is
+// legal - "<=" keeps the line consistent with the fact.
 std::string press_line(const VitalAction& a) {
     return std::string(kVitalNames[a.vital]) + " " + std::to_string(a.percent) +
-           "% < " + std::to_string(a.threshold) + "%, key=" + a.key;
+           "% <= " + std::to_string(a.threshold) + "%, key=" + a.key;
 }
 
 // SPEC §7 (amended 2026-11-08): the ONE info line of a cooldown window where a Vital
@@ -70,7 +73,7 @@ std::string press_line(const VitalAction& a) {
 // so tests count press lines as ", key=N\n" and held lines as " held: ".
 std::string held_line(const VitalWait& w) {
     return std::string(kVitalNames[w.vital]) + " " + std::to_string(w.percent) +
-           "% < " + std::to_string(w.threshold) + "%, key=" + w.key +
+           "% <= " + std::to_string(w.threshold) + "%, key=" + w.key +
            " held: cooldown left " + std::to_string(w.remaining_ms) + " ms";
 }
 
@@ -98,6 +101,9 @@ void ScannerSession::publish(Phase p, uint32_t pid) {
     ctl_.pid.store(p == Phase::Attached ? pid : 0);
     if (p == last_logged_phase_) return;
     last_logged_phase_ = p;
+    // plan-release.md item 4 (SPEC §7): entering the menu closes the "first values at
+    // info" right - the next zone entry logs its first tick at info again.
+    if (p == Phase::InMenu) first_values_logged_ = false;
     // SPEC §7 (amended 2026-11-08): phase entries are state changes, logged ONCE per
     // entry - the polls themselves stay silent. The menu line carries the PID because
     // the handle is open on it; the tooltip label carries none (SPEC §4.3).
@@ -125,6 +131,9 @@ void ScannerSession::detach_info(const std::string& reason) {
     // "one held line per window" counting never carries over from a previous session,
     // and SPEC §4.7's no-arming rule (fire on the first tick after attach) holds.
     vitals_state_ = VitalSendState{};
+    // plan-release.md item 4 (SPEC §7): the first values line is per-session too - the
+    // new attach (or the next zone entry after a detach) gets its own info values line.
+    first_values_logged_ = false;
 }
 
 void ScannerSession::attach_step(const Config& cfg) {
@@ -207,7 +216,16 @@ void ScannerSession::attach_step(const Config& cfg) {
 void ScannerSession::tick_step(const Config& cfg) {
     const TickResult t = tick(*reader_, deps_.offs, cache_);
     if (t.ok) {
-        deps_.log.log(LogLevel::Debug, values_line(t));
+        // plan-release.md item 4 (SPEC §7 amendment, 2026-11-08): the FIRST successful tick
+        // of the session logs its values line at info, so a live default-level run shows
+        // what the scanner reads right after attach / zone entry; every later tick stays
+        // debug-only (the level rules of §7, criterion §9-8 unchanged for the steady state).
+        if (!first_values_logged_) {
+            first_values_logged_ = true;
+            deps_.log.log(LogLevel::Info, values_line(t));
+        } else {
+            deps_.log.log(LogLevel::Debug, values_line(t));
+        }
         // Stage 4 (SPEC §4.7/§4.8): the presses go out on this tick, from the
         // scanner thread only. requireGameForeground is folded into the foreground
         // bool by the session: is_foreground is asked on the scanner thread via

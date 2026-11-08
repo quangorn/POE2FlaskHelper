@@ -6,6 +6,8 @@ memory of Path of Exile 2 (PathOfExile.exe), and when a value drops below your
 threshold it sends the flask key to the game as if you pressed it yourself. It never
 writes to game memory.
 
+The Russian version of this document is README.ru.txt.
+
 Requirements
 ------------
 Windows x64 and the Visual C++ v14 x64 Redistributable
@@ -15,8 +17,14 @@ How to run
 ----------
 Start POE2FlaskHelper.exe. The program lives entirely in the system tray and creates
 no windows. On the first run it creates config.json next to the exe with default
-settings. offsets.json is mandatory and must be placed next to the exe: if it is
-missing, broken or incomplete, the program shows a message and exits with code 2.
+settings: the archive does not contain config.json, your file is created by the
+program, and an existing file is never overwritten. offsets.json is mandatory and
+must be placed next to the exe: if it is missing, broken or incomplete, the program
+shows a message and exits with code 2. An unknown option in config.json - a key the
+program does not know, at any level (root, hotkeys, scanner, sound, vitals, a vital
+name, logging) - makes the whole file invalid: on startup the program shows a
+message, logs "config.json is invalid (unknown key \"...\")" and exits with code 2,
+the same way as the missing offsets.json. Fix the key and start again.
 
 Tray status (tooltip over the icon)
 -----------------------------------
@@ -60,146 +68,55 @@ Two settings apply only after a restart and the log names them ("scanner.enabled
 changed - applies after restart", "logging.file changed - applies after restart").
 A broken config.json in runtime is an error line in the log, not a message box: the
 program keeps running on the settings it has, the 5 s check continues, and the fixed file
-is applied when you save it. If an editor holds the file with an exclusive lock, or the
-file is deleted, you get one warning per check and the next check tries again. If the new
-hotkey is taken by another program, the old one is kept and the log warns.
+is applied when you save it. An unknown key in runtime is handled the same way: the log
+gets "config.json is invalid (unknown key \"<path>\"), current config kept", the
+config is not applied at all, no sound plays, and the program keeps running on the
+settings it already has - fix the key and save. If an editor holds the file with an
+exclusive lock, or the file is deleted, you get one warning per check and the next
+check tries again. If the new hotkey is taken by another program, the old one is kept
+and the log warns.
 No sound plays at startup: reload.wav plays only on a successful reload, at the
 sound.volume level.
 
 Files (everything lives next to the exe, the current directory is ignored)
 --------------------------------------------------------------------------
-config.json  - settings: scanner switch at start (enabledOnStart), poll interval,
-  requireGameForeground, process names, the Ctrl+9 hotkey, sound volume (sound.volume,
-  0-100 % for enable.wav/disable.wav/reload.wav, 100 by default), and for each Vital:
-  enabled, key, threshold (1-100 %), cooldownMs. The file is checked every 5 seconds
-  (see "Editing config.json at runtime"): most settings apply on the fly, edit and save;
-  enabledOnStart and logging.file apply after a restart.
-offsets.json - game offsets, mandatory. After a game patch the values stop matching
-  and "Offsets mismatch" appears in the log. Fix: run find_offsets.py
-  (python find_offsets.py --hp <HP> --mana <Mana> --es <ES> --current-hp <current HP>
-  --tol 0 --save offsets.json, details in scanner/README.md) and put the new file
-  next to the exe.
+config.json  - settings, created by the program on the first run with defaults. It is
+  not shipped in the archive and never overwritten by the program. scanner switch at
+  start (enabledOnStart), poll interval, requireGameForeground, process names, the
+  Ctrl+9 hotkey, sound volume (sound.volume, 0-100 % for enable.wav/disable.wav/
+  reload.wav, 100 by default), and for each Vital: enabled, key, threshold (1-100 %),
+  cooldownMs. The file is checked every 5 seconds (see "Editing config.json at
+  runtime"): most settings apply on the fly, edit and save; enabledOnStart and
+  logging.file apply after a restart. An unknown key makes the whole file invalid
+  (see "How to run").
+offsets.json - game offsets, mandatory. The first key "GameVersion" is the patch
+  version string of the game (read by find_offsets.py from the game client log,
+  e.g. "0.5.5f"); the program ignores it, it identifies the release archive. After a
+  game patch the values stop matching and "Offsets mismatch" appears in the log. Fix:
+  run find_offsets.py (python find_offsets.py --hp <HP> --mana <Mana> --es <ES>
+  --current-hp <current HP> --tol 0 --save offsets.json, details in scanner/README.md)
+  and put the new file next to the exe.
 logs/app.log - UTF-8 log next to the exe, with rotation (logging.level,
   logging.maxSizeKb, logging.keepFiles in config.json). Start, exit, config warnings,
   hotkey registration, attach/detach, Offsets mismatch are written to the log. attach
   and detach are written once per game process, not once per poll: while the game is in
   the main menu / character selection / zone loading the log stays silent (status
   "In menu / loading", one line on entering it). Every
-  flask key press is an info line ("Health 23% < 50%, key=1"), and so is the single
+  flask key press is an info line ("Health 23% <= 50%, key=1"), and so is the single
   line of a cooldown window in which the value stayed below the threshold ("EnergyShield
-  80% < 80%, key=3 held: cooldown left 720 ms") - one such line per window, so you can
-  see that the key was held back. Per-tick Vital values stay debug-only: at
-  logging.level = info the log has presses and held lines, no value lines. The
-  time zone lookup failure record (the log stamps fall back to UTC) is a debug line:
-  it appears in the log only when logging.level is debug. At level debug, hovering the
-  tray icon writes a burst of "tray callback event 512" lines (WM_MOUSEMOVE): normal
-  noise, not a problem.
+  80% <= 80%, key=3 held: cooldown left 720 ms") - one such line per window, so you can
+  see that the key was held back. The press line reads "<=" because the printed percent
+  is rounded and a legal press can show a rounded percent equal to the threshold. The
+  FIRST values line after attach and after entering the zone from the menu is an info
+  line ("tick: Health ..."); every later tick stays debug-only: at logging.level = info
+  the log has presses, held lines and that one first values line per attach/zone entry,
+  no other value lines. The time zone lookup failure record (the log stamps fall back to
+  UTC) is a debug line: it appears in the log only when logging.level is debug. At level
+  debug, hovering the tray icon writes a burst of "tray callback event 512" lines
+  (WM_MOUSEMOVE): normal noise, not a problem.
 
 Game run as administrator
 -------------------------
 If the game is started as administrator, the helper must be started with the same
 rights (right-click POE2FlaskHelper.exe -> Run as administrator). Otherwise Windows
 UIPI blocks opening the game process and sending keys to it.
-
-=======================
-POE2 Flask Helper @PROJECT_VERSION@
-=======================
-
-Трей-приложение для Windows x64. Читает HP/Mana/Energy Shield/Ward/Rage из памяти
-Path of Exile 2 (PathOfExile.exe) и при падении значения ниже порога отправляет игре
-клавишу зелья, как будто её нажал сам игрок. Запись в память игры отсутствует.
-
-Требования
-----------
-Windows x64 и Visual C++ v14 x64 Redistributable
-(https://aka.ms/vs/17/release/vc_redist.x64.exe). Ничего больше не нужно.
-
-Запуск
-------
-Запустите POE2FlaskHelper.exe. Программа живёт целиком в трее и не создаёт окон. При
-первом запуске рядом с exe создаётся config.json со значениями по умолчанию.
-offsets.json обязателен и кладётся рядом с exe: при отсутствии, повреждённом или неполном
-файле программа показывает сообщение и выходит с кодом 2.
-
-Статус в трее (тултип над иконкой)
-----------------------------------
-Первой строкой всегда "POE2FlaskHelper <версия>", статус — второй строкой:
-  Scanner off          - модуль выключен, память игры не читается вообще;
-  Waiting for game     - модуль включён, процесс игры пока не найден;
-  In menu / loading    - модуль включён, процесс игры открыт, игры в зоне нет (главное
-   меню, выбор персонажа, загрузка зоны); хэндл держится открытым, сканер опрашивает
-   раз в секунду и значений не читает;
-  Attached (PID n)     - модуль включён, значения игры читаются;
-  Admin rights required - OpenProcess отклонён: игра запущена от администратора, и хелпер
-   нужно запускать с теми же правами (см. "Игра, запущенная от администратора").
-   Статус исчезает на следующем опросе, где процесс игры открылся успешно.
-При занятом хоткее тултип дополняется строкой "hotkey Ctrl+9 busy"; программа
-продолжает работать, меню трея сохраняется.
-
-Управление
----------
-Ctrl+9 - глобальный хоткей, включает и выключает модуль сканирования. Работает, когда
-фокус у игры. Включение сопровождается звуком enable.wav, выключение - disable.wav, с
-громкостью из конфига sound.volume (0 = тишина).
-ПКМ по иконке - меню из двух пунктов:
-  Enabled / Disabled - переключатель; текст показывает текущее состояние, галочка
-  отмечает включённый модуль; клик делает то же, что Ctrl+9.
-  Exit - корректный выход, иконка исчезает из трея.
-Двойной клик по иконке ничего не делает.
-
-Правка config.json на лету
---------------------------
-Программа проверяет config.json каждые 5 секунд. Отредактируйте файл и сохраните его:
-настройки проверяются и применяются без перезапуска, в логе появляется строка
-"config.json reloaded (sound.volume, vitals.Health.threshold)" со списком применённых
-параметров, и играет reload.wav. Применяются на лету: enabled / key / threshold /
-cooldownMs каждого Vital'а, scanner.pollIntervalMs, scanner.requireGameForeground,
-scanner.processNames, sound.volume, hotkeys.toggleScanner (хоткей перерегистрируется,
-тултип обновляется), logging.level, logging.maxSizeKb, logging.keepFiles. Живая
-настройка действует с следующего тика сканера - максимум 5 секунд + один опрос после
-сохранения. Сохранение файла без правок тоже успех ("config.json reloaded (no changes)").
-Две настройки применяются только после перезапуска, и лог называет их
-("scanner.enabledOnStart changed - applies after restart",
-"logging.file changed - applies after restart").
-Битый config.json в runtime - error-строка в логе, без окна сообщения: программа работает
-на текущих настройках, 5 с проверка продолжается, и исправленный файл применяется при
-сохранении. Если редактор держит файл exclusive-локом или файл удалён, за каждую
-проверку - один warn, следующая проверка попробует снова. Если новая комбинация хоткея
-занята другой программой, старая сохраняется, и лог предупреждает.
-На старте звук не играется: reload.wav звучит только при успешном релоаде, с громкостью
-sound.volume.
-
-Файлы (всё рядом с exe, текущая папка игнорируется)
------------------------------------------------------
-config.json  - настройки: включение сканера при старте (enabledOnStart), интервал
-  опроса, requireGameForeground, имена процессов, хоткей Ctrl+9, громкость звука
-  (sound.volume, 0-100 % для enable.wav/disable.wav/reload.wav, по умолчанию 100), и для
-  каждого Vital'а: enabled, клавиша, порог (1-100 %), cooldownMs. Файл проверяется каждые
-  5 секунд (см. "Правка config.json на лету"): большинство настроек применяются на лету,
-  отредактируйте и сохраните; enabledOnStart и logging.file применяются после
-  перезапуска.
-offsets.json - смещения игры, обязателен. После патча игры смещения перестают
-  совпадать и в логе появляется "Offsets mismatch". Что делать: запустить
-  find_offsets.py (python find_offsets.py --hp <HP> --mana <Mana> --es <ES>
-  --current-hp <текущий HP> --tol 0 --save offsets.json, подробности в
-  scanner/README.md) и положить новый файл рядом с exe.
-logs/app.log - лог в UTF-8 рядом с exe, с ротацией (logging.level,
-  logging.maxSizeKb, logging.keepFiles в config.json). В лог пишутся старт, выход,
-  предупреждения конфига, регистрация хоткея, attach/detach, Offsets mismatch. attach и
-  detach пишутся один раз на процесс игры, а не на каждый опрос: пока игра находится в
-  главном меню / на экране выбора персонажа / на загрузке зоны, лог молчит (статус
-  "In menu / loading", одна строка на вход). Каждое
-  нажатие зелья — info-строка ("Health 23% < 50%, key=1"), и единственная строка окна
-  кулдауна, в котором значение оставалось ниже порога ("EnergyShield 80% < 80%, key=3
-  held: cooldown left 720 ms") — одна такая строка на окно, по ней видно, что клавиша
-  была задержана. Значения Vital'ов на каждом тике остаются только на debug: при
-  logging.level = info в логе есть нажатия и held-строки, но нет строк значений. Запись о
-  сбое поиска часовой зоны (штампы тогда в UTC) — debug-строка: она видна в логе только
-  при logging.level = debug. При уровне debug наведение курсора на иконку трея пишет
-  пачку строк "tray callback event 512" (WM_MOUSEMOVE): это штатный шум, не проблема.
-
-Игра, запущенная от администратора
-----------------------------------
-Если игра запущена от администратора, хелпер нужно запускать с теми же правами
-(ПКМ по POE2FlaskHelper.exe -> Запуск от имени администратора). Иначе Windows UIPI
-блокирует открытие процесса игры и отправку клавиш в неё.

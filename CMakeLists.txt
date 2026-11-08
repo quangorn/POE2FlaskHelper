@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(POE2FlaskHelper VERSION 1.2.3 LANGUAGES CXX RC)
+project(POE2FlaskHelper VERSION 1.3.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,7 +29,11 @@ configure_file("res/app.manifest.in" "${CMAKE_BINARY_DIR}/app.manifest" NEWLINE_
 # project version, so it cannot be a static file with a hardcoded number. Proven
 # byte-parity: replacing @PROJECT_VERSION@ in res/README.txt.in gives the exact shipped
 # bytes; CRLF matches the .gitattributes rule for *.txt. build.sh copies build/README.txt.
+# Split 2026-11-08 (plan-release.md item 6): README.txt.in is English, README.ru.txt.in
+# Russian; the archive carries both generated files (build.sh), and config.json is no
+# longer in the archive (the app generates it on first run, SPEC §4.1).
 configure_file("res/README.txt.in" "${CMAKE_BINARY_DIR}/README.txt" NEWLINE_STYLE CRLF)
+configure_file("res/README.ru.txt.in" "${CMAKE_BINARY_DIR}/README.ru.txt" NEWLINE_STYLE CRLF)
 
 add_compile_options(/W4 /utf-8 /permissive- /EHsc /GR-)
 add_compile_options("$<$<CONFIG:Release>:/O2>" "$<$<CONFIG:Release>:/Gy>")

@@ -56,16 +56,17 @@ std::string string_field(const Json& obj, const char* key, const char* def,
     return def;
 }
 
-// Report members of obj not in known[] as unknown-key warnings.
+// Report members not in known[] as full-path unknown-key paths (plan-release.md item 2:
+// an unknown key makes the whole config invalid, check_unknown collects every path).
 void check_unknown(const Json& obj, const char* const* known, size_t count,
-                   const std::string& prefix, std::vector<std::string>& w) {
+                   const std::string& prefix, std::vector<std::string>& unknown) {
     for (const auto& kv : obj.members()) {
         bool found = false;
         for (size_t i = 0; i < count; ++i) {
             if (kv.first == known[i]) { found = true; break; }
         }
         if (!found) {
-            warn(w, "unknown key \"" + prefix + kv.first + "\" ignored");
+            unknown.push_back(prefix + kv.first);
         }
     }
 }
@@ -135,6 +136,9 @@ ConfigResult config_parse(const std::string& text) {
         return r;
     }
     const Json& root = pr.value;
+    // plan-release.md item 2: every check_unknown collects full-path unknown keys; any
+    // of them makes the config invalid (rejected as a whole, not "ignored").
+    std::vector<std::string> unknown;
 
     r.cfg.configVersion = int_field(root, "configVersion", kVersionMin, kVersionMax,
                                     1, r.warnings, "configVersion");
@@ -145,7 +149,7 @@ ConfigResult config_parse(const std::string& text) {
     if (hot && !hot->is_object()) {
         warn(r.warnings, "invalid \"hotkeys\", defaults used");
     } else if (hot) {
-        check_unknown(*hot, kHotkeyKeys, 1, "hotkeys.", r.warnings);
+        check_unknown(*hot, kHotkeyKeys, 1, "hotkeys.", unknown);
         const Json* hk = hot->find("toggleScanner");
         if (hk) {
             if (hk->is_string()) {
@@ -168,7 +172,7 @@ ConfigResult config_parse(const std::string& text) {
     if (sc && !sc->is_object()) {
         warn(r.warnings, "invalid \"scanner\", defaults used");
     } else if (sc) {
-        check_unknown(*sc, kScannerKeys, 4, "scanner.", r.warnings);
+        check_unknown(*sc, kScannerKeys, 4, "scanner.", unknown);
         r.cfg.scanner.enabledOnStart = bool_field(*sc, "enabledOnStart", false,
                                                   r.warnings, "scanner.enabledOnStart");
         r.cfg.scanner.pollIntervalMs = int_field(*sc, "pollIntervalMs", kPollMin, kPollMax,
@@ -200,7 +204,7 @@ ConfigResult config_parse(const std::string& text) {
     if (sn && !sn->is_object()) {
         warn(r.warnings, "invalid \"sound\", defaults used");
     } else if (sn) {
-        check_unknown(*sn, kSoundKeys, 1, "sound.", r.warnings);
+        check_unknown(*sn, kSoundKeys, 1, "sound.", unknown);
         r.cfg.sound.volume = int_field(*sn, "volume", kVolumeMin, kVolumeMax,
                                        100, r.warnings, "sound.volume");
     }
@@ -219,7 +223,7 @@ ConfigResult config_parse(const std::string& text) {
                 continue;
             }
             static const char* const kVitalKeys[] = {"enabled", "key", "threshold", "cooldownMs"};
-            check_unknown(*v, kVitalKeys, 4, "vitals." + name + ".", r.warnings);
+            check_unknown(*v, kVitalKeys, 4, "vitals." + name + ".", unknown);
             VitalCfg& d = r.cfg.vitals[i];
             d.enabled = bool_field(*v, "enabled", d.enabled, r.warnings, "vitals." + name + ".enabled");
             d.threshold = int_field(*v, "threshold", kThresholdMin, kThresholdMax,
@@ -241,7 +245,7 @@ ConfigResult config_parse(const std::string& text) {
             }
         }
         // unknown vital names (S1-8: one name table, kVitalNames, not a second literal)
-        check_unknown(*vt, kVitalNames, kVitalCount, "vitals.", r.warnings);
+        check_unknown(*vt, kVitalNames, kVitalCount, "vitals.", unknown);
     }
 
     // logging. Missing section = defaults, silent.
@@ -250,7 +254,7 @@ ConfigResult config_parse(const std::string& text) {
     if (lg && !lg->is_object()) {
         warn(r.warnings, "invalid \"logging\", defaults used");
     } else if (lg) {
-        check_unknown(*lg, kLogKeys, 4, "logging.", r.warnings);
+        check_unknown(*lg, kLogKeys, 4, "logging.", unknown);
         const Json* lvl = lg->find("level");
         if (lvl) {
             LogLevel out;
@@ -270,7 +274,10 @@ ConfigResult config_parse(const std::string& text) {
 
     static const char* const kRootKeys[] = {"configVersion", "hotkeys", "scanner",
                                             "sound", "vitals", "logging"};
-    check_unknown(root, kRootKeys, 6, "", r.warnings);
+    check_unknown(root, kRootKeys, 6, "", unknown);
+    // plan-release.md item 2: any unknown key (any level) makes the config invalid.
+    r.unknown_keys = std::move(unknown);
+    r.invalid = !r.unknown_keys.empty();
     return r;
 }
 
@@ -384,6 +391,13 @@ ReloadOutcome config_reload(const Config& current, const FileStamp& prev, const 
         o.json_broken = true;
         o.error = r.parseError;  // "line N, column M: msg" (config_parse position format)
         return o;  // next stays = current; diff and warnings stay empty
+    }
+    if (r.invalid) {  // plan-release.md item 2: an unknown key rejects the whole config.
+        // Same keep rule as broken JSON: the app runs on the config it already has, the
+        // main.cpp handler logs the error line and advances the stamp (one line per version).
+        o.invalid = true;
+        o.unknown_keys = std::move(r.unknown_keys);
+        return o;  // next stays = current; diff, warnings stay empty
     }
     o.next = std::move(r.cfg);  // defaults + warnings per SPEC §5
     o.warnings = std::move(r.warnings);

@@ -47,7 +47,7 @@ if hasattr(sys.stderr, "reconfigure"):
 EXE_PATH = r"D:/Games/Path of Exile 2/PathOfExile.exe"
 TARGET_NAMES = ("PathOfExile.exe", "PathOfExile_x64.exe", "PathOfExileSteam.exe", "PathOfExile_KG.exe")
 
-# Смещения по ревизиям (из code/revNNN)
+# Смещения по ревизиям (по извлечённым C#-срезам ауры POE2-Mem, см. research/REPORT.md §6-7)
 OFFS = {
     # rev34: текущий патч (проверено живым прогоном 2026-11-07): от rev33 отличается
     # LocalPlayers 0x5B8 -> 0x5C0 (+8) и добавленными Vital'ами Ward @+0x2E0 (Total@+0x314,
@@ -144,6 +144,16 @@ kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
                                                 ctypes.POINTER(wintypes.DWORD)]
 psapi.EnumProcesses.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+
+version = ctypes.WinDLL("version", use_last_error=True)
+version.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+version.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+version.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                        ctypes.c_void_p]
+version.GetFileVersionInfoW.restype = wintypes.BOOL
+# argtypes не задаём: VerQueryValueW принимает byref-указатели разных типов
+# (POINTER(c_ushort) для Translation, c_wchar_p для строковых ключей)
+version.VerQueryValueW.restype = wintypes.BOOL
 ntdll.NtQueryInformationProcess.argtypes = [wintypes.HANDLE, ctypes.c_int,
                                             ctypes.POINTER(PROCESS_BASIC_INFORMATION),
                                             ctypes.c_uint,
@@ -171,6 +181,83 @@ def find_pid(names):
                 found.append((buf.value, pid))
         kernel32.CloseHandle(h)
     return found
+
+
+def image_path(pid):
+    """Полный путь exe процесса по PID (QueryFullProcessImageNameW); None при неудаче."""
+    h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return None
+    buf = ctypes.create_unicode_buffer(1024)
+    size = wintypes.DWORD(1024)
+    ok = kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size))
+    kernel32.CloseHandle(h)
+    return buf.value if ok else None
+
+
+def game_version(exe_path, pid=None):
+    """Версия игры. Основной источник — лог клиента `logs/LatestClient.txt` (PathOfExile.exe
+    НЕ содержит ресурса VERSIONINFO): строка запуска вида
+    `User agent: PoE poe2_production/tags/0.5.5f Windows x64`; при pid строка обязана
+    нести `[INFO Client <pid>]` (лог последней сессии = запуск этого процесса), окно —
+    первые 200 строк лога. VERSIONINFO — только fallback для exe с ресурсом (тесты,
+    Steam/KG-сборки, не игра). None, если источник не найден."""
+    if not exe_path:
+        return None
+    import os
+    log = os.path.join(os.path.dirname(exe_path), "logs", "LatestClient.txt")
+    try:
+        with open(log, encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i >= 200:
+                    break   # первые 200 строк: строка user-agent в начале лога запуска
+                m = re.search(r"poe2_production/tags/([0-9]+\.[0-9]+\.[0-9]+[a-z]?)", line)
+                if m and (pid is None or f"[INFO Client {pid}]" in line):
+                    return m.group(1)
+    except OSError:
+        pass
+    # fallback: VERSIONINFO у exe с ресурсом (PathOfExile.exe ресурса не имеет)
+    size = version.GetFileVersionInfoSizeW(exe_path, None)
+    if size:
+        verdata = ctypes.create_string_buffer(size)
+        if version.GetFileVersionInfoW(exe_path, 0, size, verdata):
+            # язык/кодовая страница строковой таблицы: ключ StringFileInfo строится из них,
+            # захардкоженный 040904b4 не находит таблицу других локалей
+            sublen = wintypes.ULONG()
+            tptr = ctypes.POINTER(ctypes.c_ushort)()
+            if version.VerQueryValueW(verdata, "\\VarFileInfo\\Translation",
+                                      ctypes.byref(tptr), ctypes.byref(sublen)) and tptr:
+                lang, codepage = tptr[0], tptr[1]
+                sptr = ctypes.c_wchar_p()
+                key = f"\\StringFileInfo\\{lang:04x}{codepage:04x}\\FileVersion"
+                if version.VerQueryValueW(verdata, key, ctypes.byref(sptr),
+                                          ctypes.byref(sublen)):
+                    return sptr.value
+    return None
+
+
+def game_version_short(full):
+    """Версия патча для GameVersion и имени архива: "0.5.5f" -> "0.5.5f" (буквенный хвост
+    патча сохраняется), "1.4.0.51299" -> "1.4.0" (первые 3 части, build-номер отбрасывается),
+    "2.103.3 (2026-10-26)" -> "2.103.3"; None при пустом входе."""
+    if not full:
+        return None
+    parts = full.split(".")[:3]
+    out = []
+    for part in parts:
+        core = ""
+        for ch in part:
+            if ch.isdigit():
+                core += ch
+            else:
+                break
+        if not core:
+            break
+        out.append(core)
+    # буквенный хвост патча (0.5.5f) оставляем в третьей части
+    if len(out) == 3 and len(parts[2]) > len(out[2]) and parts[2][len(out[2])] in "abcdefg":
+        out[2] += parts[2][len(out[2])]
+    return ".".join(out) if out else None
 
 
 class Mem:
@@ -768,7 +855,13 @@ if __name__ == "__main__":
         for k, v in raw.items():
             if v is None:            # --save не нашёл/не проверял поле — берём дефолт ревизии
                 continue
-            kv[k] = v if isinstance(v, int) else int(str(v), 16)
+            if isinstance(v, int):
+                kv[k] = v
+            else:
+                try:                 # строковые hex-значения старого формата
+                    kv[k] = int(str(v), 16)
+                except ValueError:
+                    continue         # метаданные (GameVersion и строки) — не смещения, пропускаем
     if kv:
         t = kv.get("TotalOff", o["VitalTotal"])
         o["VitalTotal"] = t
@@ -812,11 +905,18 @@ if __name__ == "__main__":
             print("процесс игры не найден — запустите PathOfExile.exe")
             raise SystemExit(2)
         pid = pids[0][1]
+        exe_path = pids[0][0]
         if not quiet:
             print("найдены процессы:", pids, "| смещения:", rev)
+    else:
+        exe_path = image_path(pid)
 
     mem = Mem(pid)
     if not quiet:
         print(f"PID {pid} PEB 0x{mem.peb:X} ImageBase 0x{mem.base:X} SizeOfImage 0x{mem.size:X}")
+        gv = game_version(exe_path, pid)
+        short = game_version_short(gv)
+        print(f"GameVersion {short}" if short
+              else "GameVersion: источник не найден (logs/LatestClient.txt, fallback VERSIONINFO)")
     chain(mem, o, quiet)
     mem.close()

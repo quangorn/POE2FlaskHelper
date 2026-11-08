@@ -99,15 +99,35 @@ info/warn/error), §8 (битый `config.json` в runtime), §9 (критери
    `POE2FlaskHelper.exe --version` (код возврата 0). Если strip недоступен или
    проверка не прошла — предупреждение и сборка без strip.
 7. `ctest` (красых останавливает сборку до упаковки, критерий §9-12).
-8. Упаковка: `dist/POE2FlaskHelper-<version>-win64/` = `POE2FlaskHelper.exe`,
-   `config.json`, `offsets.json`, `README.txt`; zip-архив
-   `dist/POE2FlaskHelper-<version>-win64.zip`. Только zip, 7z не используется.
+8. Упаковка: `dist/POE2FlaskHelper-<version>-poe2-<gamever>-win64/` = `POE2FlaskHelper.exe`,
+   `offsets.json`, `README.txt`, `README.ru.txt`; zip-архив
+   `dist/POE2FlaskHelper-<version>-poe2-<gamever>-win64.zip`. Только zip, 7z не используется.
+   Изменено 2026-11-08 (plan-release.md п. 5): `config.json` в архив НЕ входит — состав
+   exe + `offsets.json` + `README.txt` + `README.ru.txt`; файл создаётся приложением при
+   первом запуске (§4.1), распаковка в существующую папку не трогает конфиг пользователя.
+   `<gamever>` — версия патча игры из строкового ключа `GameVersion` файла `offsets.json`
+   (пишет `find_offsets.py --save`, §6); при отсутствии ключа — имя без poe2-части и
+   предупреждение. Новый патч игры с новыми смещениями даёт новый архив без смены версии
+   exe (§2.4).
    Изменено 2026-11-08 (minors группа E1, R5-5): перед созданием zip упакованный exe
    запускается из временной копии staged-каталога и закрывается documented-хуком
    `FindWindowW` + `PostMessageW(WM_CLOSE)` (src/tray.h) — полный запуск и чистый выход
-   с кодом 0, критерий §9-2; красых случаев zip не создаётся.
+   с кодом 0, критерий §9-2; красых случаев zip не создаётся. Копия smoke-прогона
+   содержит `offsets.json` без `config.json` (изменено 2026-11-08, plan-release.md п. 5):
+   прогон подтверждает генерацию `config.json` на первом запуске проверкой появления файла
+   и байтовой сверкой с эталоном `res/config.example.json` (§3).
    Изменено 2026-11-08 (версионирование): `README.txt` в staged-каталоге —
    сгенерированный `build/README.txt` (§2.3), а не статический файл из `res/`.
+
+9. Релиз на GitHub (`release.sh`, добавлено 2026-11-08, plan-release.md п. 8): после
+   packaging публикация zip как GitHub release — тег `v<version>-poe2-<gamever>`, title
+   и body на английском; загрузка по умолчанию, отключение `--no-upload` (`build.sh
+   --no-upload` пробрасывает). Источник body — запись `CHANGELOG.en.md` текущей версии
+   (§2.4); для offsets-only релиза (та же версия exe, новый патч игры) — «Updated memory
+   offsets for POE2 <gamever>, program code unchanged». Повторный upload существующего
+   тега — сообщение и non-zero выход. `gh` берётся из PATH, fallback
+   `C:\Program Files\GitHub CLI\gh.exe` (проверен 2026-11-08: 2.103.3). Красых release
+   = сборка падает после создания zip.
 
 Версия берётся из `project(... VERSION ...)` и попадает в VERSIONINFO, манифест
 (`assemblyIdentity`, генерируется из `res/app.manifest.in`), генерируемый
@@ -133,7 +153,16 @@ info/warn/error), §8 (битый `config.json` в runtime), §9 (критери
 проверку (механика — SPEC §5). Механизм генерации (`configure_file`, `@PROJECT_VERSION@`)
 и состав архива не меняются; сгенерированный README — 205 CRLF-строк.
 
-Один файл, двуязычный: сначала English, затем Russian. Содержание: запуск, статус
+Дополнено 2026-11-08 (plan-release.md п. 6): README разделён на два файла:
+`res/README.txt.in` — English, `res/README.ru.txt.in` — Russian; два `configure_file`
+в CMakeLists генерируют `build/README.txt` и `build/README.ru.txt`, в корень архива
+копируются оба (состав §2.2). Содержание описывает генерацию `config.json` на первом
+запуске (архив его не содержит), неизвестный ключ = невалидный конфиг, press-строку
+`% <= 50%` и первую info-строку значений (§4.7, §7). Корневой `README.md` — английский,
+`README.ru.md` — русский; `scanner/README.md` — английский, `scanner/README.ru.md` —
+русский.
+
+Содержание каждого языка: запуск, статус
 в трее, где лежат `config.json`, `offsets.json` и лог, что делать при
 `Offsets mismatch`, требование VC++ v14 x64 Redistributable. Изменено 2026-11-08:
 добавлено требование прав запуска — если игра запущена от администратора, хелпер
@@ -152,26 +181,35 @@ info/warn/error), §8 (битый `config.json` в runtime), §9 (критери
   `src/` и `res/` ассеты/rc/manifest, то есть всё, что линкуется в exe. Не поднимают
   версию: `tests/`, документация (`SPEC.md`, `plan.md`, `backlog.md`, `README.md`,
   `CHANGELOG.md`, `res/README.txt.in`), `research/`, `scanner/`, `build.sh`,
-  `version.sh`, `config.json`, `offsets.json`, `res/gen_assets.py`.
+  `version.sh`, `config.json`, `offsets.json`, `res/gen_assets.py`. Дополнено 2026-11-08
+  (plan-release.md п. 5–8): в список не поднимающих версию добавлены `release.sh`,
+  `res/README.ru.txt.in` (русский документ архива) и `res/config.example.json` (эталон
+  дефолтов, данные, не ассет exe). Новый патч игры (новые смещения, новый `GameVersion`
+  при неизменном коде) — новый релизный архив с новой poe2 в имени и новый тег, версия exe
+  не меняется; гейт `check` зелёный (код не менялся), body релиза — offsets-фраза (§2.2 п. 9).
 
 Единственный источник номера — `project(POE2FlaskHelper VERSION x.y.z LANGUAGES CXX RC)`
 в `CMakeLists.txt` (§2.2); его форма — контракт, который правит только `version.sh`.
 История версий — `CHANGELOG.md` (записи newest-first: версия, дата, класс, что вошло).
-Git-тегов нет; якорь «последний подъём» вычисляется по истории `CMakeLists.txt`.
+Изменено 2026-11-08 (plan-release.md п. 8): англоязычные заметки — `CHANGELOG.en.md`,
+запись добавляется обязательным вторым описанием `--en "English note"` и служит body
+GitHub-релиза (`release.sh`, §2.2 п. 9). Git-тегов нет; якорь «последний подъём»
+вычисляется по истории `CMakeLists.txt`.
 
 Процедура (`version.sh`, cygwin bash):
 
 ```
-./version.sh major "описание фичи"      # 1.1.0 -> 1.2.0
-./version.sh minor "описание фикса"     # 1.1.0 -> 1.1.1
-./version.sh series "описание"          # смена серии; правило 3 действует и здесь
+./version.sh major "описание фичи" --en "English note"      # 1.1.0 -> 1.2.0
+./version.sh minor "описание фикса" --en "English note"     # 1.1.0 -> 1.1.1
+./version.sh series "описание" --en "English note"          # смена серии; правило 3 действует и здесь
 ./version.sh check                      # гейт для build.sh
 ```
 
-`version.sh` правит `CMakeLists.txt` и `CHANGELOG.md`, никогда не коммитит; описание из
-второго аргумента идёт в запись CHANGELOG. Проверки: git-репозиторий и HEAD, контрактная
-форма строки версии, чистые `CMakeLists.txt`/`CHANGELOG.md`, правило 3 (код менялся от
-последнего подъёма до HEAD; исключение — documented-`--force`).
+`version.sh` правит `CMakeLists.txt`, `CHANGELOG.md` и `CHANGELOG.en.md`, никогда не
+коммитит; описание из второго аргумента идёт в русскую запись CHANGELOG, `--en` — в
+английскую. Проверки: git-репозиторий и HEAD, контрактная форма строки версии, чистые
+`CMakeLists.txt`/`CHANGELOG.md`/`CHANGELOG.en.md`, правило 3 (код менялся от последнего
+подъёма до HEAD; исключение — documented-`--force`).
 
 Гейт `check` перед packaging (красых = zip не создаётся):
 
@@ -205,7 +243,8 @@ Git-тегов нет; якорь «последний подъём» вычис
 per-TU копия убрана; reverse-копии `main.cpp`/`game_process.cpp` вне scope m10).
 
 ```
-build.sh  version.sh  CHANGELOG.md  CMakeLists.txt  README.md  SPEC.md  plan.md  backlog.md
+build.sh  version.sh  release.sh  CHANGELOG.md  CHANGELOG.en.md  CMakeLists.txt
+README.md  README.ru.md  SPEC.md  plan.md  plan-release.md  backlog.md
 статическая библиотека poe2_core (общая для exe и тестов; чистая логика, интерфейсы §3.1):
 src/json.{h,cpp}       разбор/сериализация
 src/config.{h,cpp}     схема, валидация, значения по умолчанию
@@ -244,9 +283,13 @@ src/mem/             reader.h (IMemoryReader, IMemoryReaderFactory) + win_reader
 src/system_clock.h   реализация IClock
 src/res_ids.h        общие id ресурсов (app.rc, C++, тесты)
 res/app.ico res/app.rc res/app.manifest.in res/enable.wav res/disable.wav res/reload.wav
-res/README.txt.in  пользовательский двуязычный документ (§2.3): лежит в res/, `configure_file` создаёт из него
+res/README.txt.in  пользовательский документ архива (English, §2.3): лежит в res/, `configure_file` создаёт из него
          `build/README.txt` с версией проекта (§2.2), в корень zip копируется
          сгенерированный файл (build.sh);
+res/README.ru.txt.in  то же для русской версии архивного документа (`build/README.ru.txt`), добавлено 2026-11-08 (plan-release.md п. 6);
+res/config.example.json  эталон дефолтов конфига: байтово дословный вывод `config_serialize(config_defaults())`
+         (проверен smoke- прогоном build.sh, §2.2); сам `config.json` в репозитории и архиве
+         отсутствует — создаётся приложением при первом запуске (SPEC §4.1, plan-release.md п. 5);
 res/version.h.in res/res_paths.rc.in  входы configure_file: build/version.h,
         build/res_paths.rc, build/app.manifest (SPEC §2.2 — версия в VERSIONINFO,
         манифест и имя архива);
@@ -262,8 +305,16 @@ tests/ мини-фреймворк test.h + test_main.cpp + *_tests.cpp (в то
        консольный exe poe2_tests + ctest (unit). Единственный exe-слойный файл в
        тестовой сборке: tests/scanner_thread_tests.cpp (GA-1) гоняет src/scanner.cpp —
        старт→стоп→старт на реальном event-объекте, всё остальное — фейки;
-config.json offsets.json offsets_selftest.json (selftest-данные scanner/find_offsets.py)
+offsets.json offsets_selftest.json (selftest-данные scanner/find_offsets.py)
 ```
+
+Изменено 2026-11-08 (plan-release.md п. 5–7): корневой `config.json` перенесён в
+`res/config.example.json` (архив и приложение генерируют `config.json` при первом
+запуске); README'и разделены на English/Russian: корень (`README.md` + `README.ru.md`),
+архив (`res/README.txt.in` + `res/README.ru.txt.in`), scanner (`scanner/README.md` +
+`scanner/README.ru.md`); `research/code/`, `research/offsets_table.py`,
+`research/extract_code.py`, `research/rev32_rev33.diff` удалены (артефакты в истории
+git); в дерево добавлены `release.sh` и `CHANGELOG.en.md`.
 
 Ассеты финальны и предоставлены пользователем 2026-11-07: `res/app.ico`
 (записи 16–256 px, прозрачный фон), `res/enable.wav` и `res/disable.wav`
@@ -300,6 +351,8 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
 - Все пути строятся от каталога exe (`GetModuleFileNameW`); текущая рабочая
   директория игнорируется — важно при запуске из cygwin.
 - Нет `config.json` — создаётся файл со значениями по умолчанию.
+- Неизвестный ключ в `config.json` на старте — изменено 2026-11-08 (plan-release.md п. 2):
+  error + MessageBox + выход с кодом 2 (как отсутствующий `offsets.json`, §5).
 - Нет, битый или неполный `offsets.json` — запись в лог, MessageBox, выход с кодом 2.
   Встроенных смещений в exe нет.
 - Сразу после старта приложение живёт в трее, окон не создаёт.
@@ -456,14 +509,18 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
   `poe_scan.py`);
 - сравнение без округления: `current * 100 < threshold * unreserved`;
 - если ниже порога и с прошлой отправки прошло `cooldownMs` — отправка клавиши
-  и info-запись `Health 23% < 50%, key=1` (изменено 2026-11-08, live-тесты: press-строка
-  пишется на info, чтобы быть видимой при уровне по умолчанию);
+  и info-запись `Health 23% <= 50%, key=1` (изменено 2026-11-08, live-тесты: press-строка
+  пишется на info, чтобы быть видимой при уровне по умолчанию; изменено 2026-11-08,
+  plan-release.md п. 3: знак `<` -> `<=` — сравнение строгое (`current*100 <
+  threshold*unreserved`), но печатаемый процент округлённый half-even, и округлённое
+  значение может равняться порогу легального нажатия — `<=` описывает факт);
 - пока значение остаётся ниже порога, повтор каждые `cooldownMs`.
 
 Изменено 2026-11-08 (live-тесты, группа L1). Ситуация «ниже порога, кулдаун ещё не
 прошёл» ловится кодом и пишется на info ровно **один раз за окно кулдауна**:
-`Health 26% < 50%, key=1 held: cooldown left 950 ms`. Окно открывается отправкой;
-флаг «строка уже потрачена» на Vital сбрасывается следующей отправкой этого Vital'а
+`Health 26% <= 50%, key=1 held: cooldown left 950 ms` (знак `<=` — plan-release.md п. 3).
+Окно открывается отправкой; флаг «строка уже потрачена» на Vital сбрасывается следующей
+отправкой этого Vital'а
 (то есть срабатыванием кулдауна), поэтому каждое новое окно даёт одну строку. Тик выше
 порога флаг не трогает: значение, вернувшееся в уже отмеченное окно, строки не даёт.
 detach (выключение сканера, разрыв цепочки) закрывает кулдаунные таймеры и флаги:
@@ -527,9 +584,10 @@ detach (выключение сканера, разрыв цепочки) зак
 `logging.file` (перезапуск writer-потока = риск потерять reload-строки).
 `configVersion` — метаданные, не применяется, warn не печатает.
 
-Стартовые правила (аменд 2026-11-08: старт берёт тот же разбор, что и 5 с цикл):
-файла нет — создаётся дефолтный; битый файл на старте — error + MessageBox, работа на
-значениях по умолчанию (§4.1, §8).
+Стартовые правила (аменд 2026-11-08: старт берёт тот же разбор, что и 5 с цикл;
+неизвестный ключ — аменд plan-release.md п. 2 2026-11-08: error + MessageBox + выход с
+кодом 2, не работа на дефолтах): файла нет — создаётся дефолтный; битый файл на старте
+— error + MessageBox, работа на значениях по умолчанию (§4.1, §8).
 
 ```json
 {
@@ -556,7 +614,14 @@ detach (выключение сканера, разрыв цепочки) зак
 Правила разбора (изменено 2026-11-08: действуют и на старте, и в 5 с цикле; warning'и
 цикла пишутся уже при новом уровне логирования, §5 ветка «валидный JSON»):
 
-- неизвестные ключи — warning в лог, игнорируются;
+- неизвестные ключи (любой уровень: root, `hotkeys`, `scanner`, `sound`, `vitals`, имя
+  Vital'а, поля Vital'а, `logging`) — изменено 2026-11-08 (plan-release.md п. 2): конфиг
+  целиком **невалиден**, не «warning + игнор». Старте: error в лог
+  `config.json is invalid (unknown key "<путь>", …)` + MessageBox + выход с кодом 2
+  (тот же контракт старта, что отсутствующий `offsets.json`, §4.1/§8). Runtime: error
+  `config.json is invalid (unknown key "<путь>", …), current config kept`, приложение и
+  сканер живут на текущем конфиге, MessageBox нет, 5 с цикл сохраняется, та же
+  невалидная версия логируется один раз (штамп двигается на обработанную версию);
 - отсутствующие — значения по умолчанию;
 - невалидные (`threshold` вне 1–100, `cooldownMs < 0`, `pollIntervalMs` вне 10–1000,
   `sound.volume` вне 0–100, неизвестная клавиша, хоткей без модификатора) — warning
@@ -573,6 +638,7 @@ detach (выключение сканера, разрыв цепочки) зак
 
 ```json
 {
+  "GameVersion": "0.5.5f",
   "CurrentStatePtr": 16, "States": 80, "TOTAL": 13, "AreaInstanceData": 656,
   "LocalPlayers": 1472, "EntityId": 136, "EntityIsValid": 140,
   "EntityDetailsName": 8, "EntityDetailsLookup": 40, "CLU_Bucket": 40,
@@ -581,6 +647,12 @@ detach (выключение сканера, разрыв цепочки) зак
   "BackPtrOff": 16, "Score": 9
 }
 ```
+
+- Изменено 2026-11-08 (plan-release.md п. 1): `GameVersion` — необязательная **строковая**
+  мета-ключа версии патча игры (`find_offsets.py --save` пишет его первым; источник —
+  `logs/LatestClient.txt`, см. scanner/README). Приложение игнорирует неизвестные ключи
+  (`offsets_parse` читает только набор §6), строковое значение не является ошибкой;
+  имя релизного архива строится по этой версии.
 
 - `HealthOff/ManaOff/ESOff/WardOff/RageOff` — позиции Total внутри Life; основа
   Vital'а = `Off − TotalOff`.
@@ -600,9 +672,16 @@ detach (выключение сканера, разрыв цепочки) зак
 - **info**: старт/выход, версия, загрузка конфига и предупреждения, регистрация
   хоткея, scanner enabled/disabled, attach/detach (PID, ImageBase), потеря цепочки
   (не чаще раза в 5 с), fatal-ошибки. Изменено 2026-11-08 (live-тесты, группа L1):
-  каждое нажатие (`Health 23% < 50%, key=1`) и единственная за окно кулдауна строка
-  «ниже порога, кулдаун не прошёл» (`Health 26% < 50%, key=1 held: cooldown left 950 ms`,
-  §4.7) пишутся на info. Строки различимы: у held-строки хвост ` held: `.
+  каждое нажатие (`Health 23% <= 50%, key=1`) и единственная за окно кулдауна строка
+  «ниже порога, кулдаун не прошёл» (`Health 26% <= 50%, key=1 held: cooldown left 950 ms`,
+  §4.7) пишутся на info. Строки различимы: у held-строки хвост ` held: `. Знак `<=` —
+  изменено 2026-11-08 (plan-release.md п. 3, §4.7): печатаемый процент округлённый,
+  легальному нажатию может соответствовать округлённый процент, равный порогу.
+  Изменено 2026-11-08 (plan-release.md п. 4): **первая** успешная строка значений после
+  присоединения/входа в зону (`tick: Health …`) пишется на info; все последние тики —
+  debug-only. Право первой info-строки закрывается при detach (выключение сканера,
+  разрыв цепочки, закрытие/рестарт игры) и при каждом входе в `InMenu`; следующий вход
+  в зону даёт свою первую info-строку.
 - Изменено 2026-11-08 (live-тесты, группа M1): `attach` и `detach` пишутся один раз на
   процесс, а не на каждый опрос: `attached PID …` — при первом `OpenProcess`,
   `detached from PID …` — при реальном закрытии хэндла (выключение сканера, смерть
@@ -647,8 +726,9 @@ detach (выключение сканера, разрыв цепочки) зак
   current config kept` — битый JSON в runtime, MessageBox нет (§8). Штамп двигается
   только на обработанную версию: та же битая версия логируется один раз.
 
-При уровне `info` одиночные изменения значений (строки `tick:`) не пишутся; нажатия
-клавиш и held-строки пишутся (изменено 2026-11-08, группа L1). Live-тесты ведутся при
+При уровне `info` одиночные изменения значений (строки `tick:`) не пишутся, кроме первой
+строки значений после присоединения/входа в зону (изменено 2026-11-08, plan-release.md
+п. 4, §7); нажатия клавиш и held-строки пишутся (изменено 2026-11-08, группа L1). Live-тесты ведутся при
 `debug`: пачка `tray callback event 512` (`WM_MOUSEMOVE` от трея при наведении курсора
 на иконку, до ~50 событий) — штатный debug-шум, не проблема.
 
@@ -664,12 +744,15 @@ detach (выключение сканера, разрыв цепочки) зак
 | Отсутствующий/битый WAV | warning, работа без звука |
 | Нет/битый `offsets.json` | error + MessageBox + выход с кодом 2 |
 | Битый `config.json` в runtime (5 с цикл, hot-reload — изменено 2026-11-08) | error в лог **без MessageBox** (`config.json is broken (line N, column M: msg), current config kept`), сканер и приложение живут на текущем конфиге, 5 с цикл сохраняется (починка применяется), та же битая версия логируется один раз (§5, §7) |
+| `config.json` с неизвестным ключом (изменено 2026-11-08, plan-release.md п. 2) | старт: error + MessageBox + выход с кодом 2; runtime: error **без MessageBox** (`config.json is invalid (unknown key "<путь>", …), current config kept`), жизнь на текущем конфиге, 5 с цикл сохраняется, та же версия логируется один раз (§5, §7) |
 
 ## 9. Критерии приёмки
 
 1. `./build.sh` из cygwin собирает x64 Release без предупреждений `/W4`, делает
-   strip и создаёт `dist/POE2FlaskHelper-<version>-win64.zip` с exe, `config.json`,
-   `offsets.json`, `README.txt`.
+   strip и создаёт `dist/POE2FlaskHelper-<version>-poe2-<gamever>-win64.zip` с exe,
+   `offsets.json`, `README.txt`, `README.ru.txt` (`config.json` в архиве нет — он
+   генерируется при первом запуске, §2.2, plan-release.md п. 5) и публикует релиз на
+   GitHub (отключение `--no-upload`, §2.2 п. 9).
 2. Запуск из распакованного архива; требуется только VC++ v14 x64 Redistributable.
 3. Старт в трее без окон; второй экземпляр не стартует.
 4. ПКМ по трею: ровно `Enable/Disable scanner` (с галочкой) и `Exit`.
@@ -679,11 +762,15 @@ detach (выключение сканера, разрыв цепочки) зак
 7. При включённом сканере — attach и значения; при выключенном — ни одного
    `ReadProcessMemory`.
 8. Vital ниже порога → клавиша в игре не чаще кулдауна; при `info` нажатия (`key=`) и
-   единственная held-строка окна кулдауна в логе есть, строк значений (`tick:`) нет;
-   при `debug` есть и то, и другое (изменено 2026-11-08, live-тесты, группа L1 — §4.7, §7).
+   единственная held-строка окна кулдауна в логе есть, строк значений (`tick:`) нет
+   кроме первой после присоединения/входа в зону (изменено 2026-11-08, plan-release.md
+   п. 4, §7); при `debug` есть и то, и другое (изменено 2026-11-08, live-тесты, группа L1 —
+   §4.7, §7).
 9. Игра не в фокусе — клавиши не отправляются.
 10. `config.json`, `offsets.json`, `logs/` — рядом с exe независимо от cwd.
-11. `README.txt` двуязычный (English + Russian) в одном файле.
+11. Изменено 2026-11-08 (plan-release.md п. 6): архив содержит два пользовательских
+    документа — `README.txt` (English) и `README.ru.txt` (Russian), каждый на своём
+    языке, с версией проекта из `configure_file`.
 12. Изменено 2026-11-08: `ctest` зелёный; сборка пакета при красных тестах
     невозможна — `build.sh` гоняет `ctest` после strip и останавливается до
     упаковки, тестовый exe в zip не попадает.

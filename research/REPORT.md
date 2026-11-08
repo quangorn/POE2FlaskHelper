@@ -4,24 +4,20 @@
 
 ```
 research/
-  code/rev33/          — полный C# код ауры POE2-Mem (ревизия 33, патч v0.5.5, 05.09.2026)
-  code/rev32/          — C# код ауры (ревизия 17.07.2026 08:19, патч v0.5.4c)
-  code/rev31/          — C# код ауры (ревизия 17.07.2026 08:18, тот же патч v0.5.4c)
-  code/rev2025-09-16/  — срез из config.bak.7z, git commit e3c15f9 (начало 2025-09)
-  code/rev2025-10-11/  — срез из config.bak.7z, git commit 4c14a56 (2025-10, офсеты под v0.4)
-  rev31_rev32.diff     — пустой: rev31 и rev32 байт-в-байт идентичны
-  rev32_rev33.diff     — полный diff кода rev32 → rev33 (57 строк, только офсеты)
   revisions/config     — распакованный config.bak.7z (git-репозиторий конфига пака, 75 коммитов)
-  extract_code.py      — извлечение C#-кода из любого Script.json (любая ревизия)
-  offsets_table.py     — сводная таблица смещений по всем извлечённым ревизиям
   verify_signature.py  — парсинг секций PE + поиск сигнатуры в PathOfExile.exe
   check_symbols.py     — Debug directory (CODEVIEW/PDB) + C++-маниглинг
   find_component_names.py / life_context.py — поиск имён компонентов в бинарнике
 ```
 
+Срезы C#-кода ауры `code/revNNN`, диффы ревизий (`rev31_rev32.diff`, `rev32_rev33.diff`) и
+инструменты извлечения (`extract_code.py`, `offsets_table.py`) удалены из репозитория
+2026-11-08 (plan-release.md п. 7): выводы из них записаны в разделах 6–7 этого отчёта, при
+необходимости артефакты берутся из истории git.
+
 Скрипты, работающие с живым процессом, вынесены рядом в `scanner/` (`poe_scan.py`, `find_offsets.py`,
 сохранённый расклад `offsets.json`, `README.md` с командами и опциями). Это сканер, а не исследование:
-в `research/` остались анализ бинарника и код ауры. Выводы из живых прогонов — раздел 11.
+в `research/` остался анализ бинарника. Выводы из живых прогонов — раздел 11.
 
 Ревизии пака: `rev33` = «Fixed offsets for the latest patch v0.5.5 (2026-09-05)»,
 `rev32` = «Fixed offsets for the latest patch v0.5.4c (2026-07-16)», `rev31` = загрузка 17.07.2026 08:18,
@@ -317,7 +313,8 @@ VitalStruct.cs         | ReservedFlat    | 0x10          | 0x10          | 0x18 
 
 ### 7.0 rev 31 = rev 32 (код байт-в-байт идентичен)
 
-`diff -ru code/rev31 code/rev32` → **пустой** (`rev31_rev32.diff`, 0 строк). rev31 загружена 17.07.2026 в
+Сравнение кода rev31 и rev32 (замерено до удаления артефактов `code/`) — **байт-в-байт
+идентичны**. rev31 загружена 17.07.2026 в
 08:18:34, rev32 — в 08:19:58, то есть через минуту: rev32 пересобрана/перезалит без изменений исходника.
 Смещения обеих — под v0.5.4c. Отличия от исторических срезов у них общие: `ZoneSwitchCounter 0x46C → 0x56C`,
 `Entity.Id 0x80 → 0x88`, `Entity.IsValid 0x84 → 0x8C`, `Life.Mana 0x1F8 → 0x200`, `Life.ES 0x230 → 0x240`,
@@ -326,7 +323,8 @@ VitalStruct.cs         | ReservedFlat    | 0x10          | 0x10          | 0x18 
 
 ### 7.1 rev 32 → rev 33 (единственные отличия)
 
-Полный diff (`rev32_rev33.diff`) затрагивает **только 2 файла и 6 смещений**; весь остальной код, включая
+Полный diff кода rev32 → rev33 (замерен до удаления `rev32_rev33.diff`, его вывод — таблица ниже)
+затрагивает **только 2 файла и 6 смещений**; весь остальной код, включая
 сигнатуру, BotBrain, Life/Vital/Entity и компонентный поиск — байт в байт идентичен.
 
 ```
@@ -458,8 +456,9 @@ foreach (var ni in namesAndIndexes)                       // элемент 16 �
 
 1. Распаковать пак ревизии и запустить его (он создаст `data/release/config/auras/POE2-Mem/Script.json`),
    либо достать `Script.json` из архива пака/`config.bak` этой ревизии.
-2. `python extract_code.py <путь>/Script.json code/revNNN`
-3. `python offsets_table.py` — таблица обновится автоматически (она обходит все `code/rev*`).
+2. Инструменты извлечения C#-кода (`extract_code.py`) и сводной таблицы смещений
+   (`offsets_table.py`) удалены из репозитория 2026-11-08 (plan-release.md п. 7) вместе с
+   `code/`; их выводы — разделы 6–7 этого отчёта, сами скрипты берутся из истории git.
 
 Срез из локального `config.bak.7z` уже распакован в `revisions/config`, история:
 `git -C revisions/config log --oneline -- auras/POE2-Mem/Script.json`

@@ -3,3 +3,9 @@ __pycache__/
 research/revisions/
 build/
 dist/
+# Generated at runtime by the app in the working directory (SPEC §4.1): logs/ and the
+# first-run config.json. The repo's reference is res/config.example.json.
+logs/
+/config.json
+# Junk created by scripts that expand %SystemDrive% literally (E1 smoke-run investigation).
+%SystemDrive%/

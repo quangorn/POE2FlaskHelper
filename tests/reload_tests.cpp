@@ -163,6 +163,7 @@ TEST(config_reload_stamp_unchanged) {
     CHECK(!o.attempt);
     CHECK(!o.read_failed);
     CHECK(!o.json_broken);
+    CHECK(!o.invalid);
     CHECK(o.error.empty());
     CHECK(o.live_changed.empty());
     CHECK(o.restart_changed.empty());
@@ -220,19 +221,50 @@ TEST(config_reload_json_broken_keeps_current) {
 TEST(config_reload_warnings) {
     Config cur = config_defaults();
     FileStamp prev{kPrevTick, kPrevSize}, moved{kPrevTick + 1, 600};
-    // SPEC §5 warning + a valid change: the warning is reported, the change applies.
-    auto o = config_reload(cur, prev, moved, R"({"scanner":{"pollIntervalMs":100,"foo":1}})", true);
-    CHECK(o.attempt && !o.json_broken);
-    CHECK_EQ(o.warnings.size(), 1u);
-    CHECK(o.warnings[0].find("unknown key") != std::string::npos);
+    // Valid change: the change applies, no warnings (plan-release.md item 2 moved the
+    // unknown-key case to the invalid branch, see config_reload_invalid_unknown_key).
+    auto o = config_reload(cur, prev, moved, R"({"scanner":{"pollIntervalMs":100}})", true);
+    CHECK(o.attempt && !o.json_broken && !o.invalid);
+    CHECK_EQ(o.warnings.size(), 0u);
     CHECK_EQ(o.live_changed, std::vector<std::string>{"scanner.pollIntervalMs"});
     CHECK(o.restart_changed.empty());
     // Invalid value -> default = current: a success with warnings and an EMPTY diff.
     auto w = config_reload(cur, prev, moved, R"({"sound":{"volume":101}})", true);
-    CHECK(w.attempt && !w.json_broken);
+    CHECK(w.attempt && !w.json_broken && !w.invalid);
     CHECK_EQ(w.warnings.size(), 1u);
     CHECK(w.live_changed.empty() && w.restart_changed.empty());
     CHECK_EQ(w.next.sound.volume, 100);  // SPEC §5: default used
+}
+
+// plan-release.md item 2 (SPEC §5 runtime amendment): an unknown key rejects the whole
+// config; the app keeps running on the CURRENT config (the keep rule of broken JSON),
+// and the same invalid version logs once - main.cpp advances the stamp on the handled
+// version, so the next cycle sees an unchanged stamp and repeats nothing.
+TEST(config_reload_invalid_unknown_key_keeps_current) {
+    Config cur = config_defaults();
+    cur.sound.volume = 25;  // NOT the defaults: the running config must survive
+    FileStamp prev{kPrevTick, kPrevSize}, moved{kPrevTick + 1, 600};
+    auto o = config_reload(cur, prev, moved, R"({"scanner":{"pollIntervalMs":100,"foo":1}})", true);
+    CHECK(o.attempt && !o.json_broken && !o.read_failed);
+    CHECK(o.invalid);
+    CHECK_EQ(o.unknown_keys, std::vector<std::string>{"scanner.foo"});
+    CHECK(config_diff(o.next, cur).empty());  // current kept, not the parsed change
+    CHECK(o.live_changed.empty() && o.restart_changed.empty() && o.warnings.empty());
+    // Stamp advances to the handled invalid version (main.cpp): the same text on the same
+    // stamp is a no-op cycle, the config stays.
+    auto o2 = config_reload(o.next, moved, moved, R"({"scanner":{"pollIntervalMs":100,"foo":1}})", true);
+    CHECK(!o2.attempt && !o2.invalid && !o2.json_broken);
+    CHECK(config_diff(o2.next, cur).empty());
+    // The user fixes the key: the new stamp parses, the change applies on the current config.
+    // The fixed text omits sound.volume, so the parse takes the SPEC §5 default 100 - the
+    // canonical diff carries both changed paths (scanner.pollIntervalMs before sound.volume).
+    FileStamp fixed{kPrevTick + 2, 590};
+    auto o3 = config_reload(o.next, moved, fixed, R"({"scanner":{"pollIntervalMs":100}})", true);
+    CHECK(o3.attempt && !o3.invalid);
+    const std::vector<std::string> want_live{"scanner.pollIntervalMs", "sound.volume"};
+    CHECK_EQ(o3.live_changed, want_live);
+    CHECK_EQ(o3.next.scanner.pollIntervalMs, 100);
+    CHECK_EQ(o3.next.sound.volume, 100);
 }
 
 TEST(config_reload_success_splits_live_restart) {
@@ -249,7 +281,7 @@ TEST(config_reload_success_splits_live_restart) {
                      "maxSizeKb": 2048, "keepFiles": 5 }
     })";
     auto o = config_reload(cur, prev, moved, text, true);
-    CHECK(o.attempt && !o.json_broken && !o.read_failed);
+    CHECK(o.attempt && !o.json_broken && !o.read_failed && !o.invalid);
     CHECK(o.error.empty());
     CHECK_EQ(o.warnings.size(), 0u);
     // Canonical order preserved inside each subset (plan §2 table).
@@ -272,7 +304,7 @@ TEST(config_reload_empty_diff_is_success) {
     // save without edits: same size, mtime moved
     FileStamp prev{kPrevTick, kPrevSize}, moved{kPrevTick + 1, kPrevSize};
     auto o = config_reload(cur, prev, moved, config_serialize(cur), true);
-    CHECK(o.attempt && !o.json_broken && !o.read_failed);  // plan §0: empty diff = success
+    CHECK(o.attempt && !o.json_broken && !o.read_failed && !o.invalid);  // plan §0: empty diff = success
     CHECK(o.live_changed.empty() && o.restart_changed.empty());
     CHECK(o.warnings.empty());
     CHECK(config_diff(o.next, cur).empty());
@@ -369,7 +401,7 @@ TEST(live_threshold_change_makes_a_press_line_with_the_new_threshold) {
     f.set_live(c);
     f.session.step();                       // plan §2: the next evaluate() uses the snapshot
     CHECK_EQ(f.sender.count(), 1);
-    CHECK(f.log_text().find("Health 51% < 60%, key=1\n") != std::string::npos);
+    CHECK(f.log_text().find("Health 51% <= 60%, key=1\n") != std::string::npos);
 }
 
 TEST(live_key_change_gives_the_new_vk_to_the_sender) {

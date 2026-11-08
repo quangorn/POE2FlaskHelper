@@ -55,11 +55,18 @@ struct ConfigResult {
     bool jsonBroken = false;    // bad JSON / root not object -> error log + MessageBox, run on defaults
     std::string parseError;     // JSON parse position included
     Config cfg;                 // defaults already applied; invalid fields reset to defaults
-    std::vector<std::string> warnings;  // unknown/invalid keys (SPEC §5 rules)
+    std::vector<std::string> warnings;  // invalid values (SPEC §5 rules)
+    // Added 2026-11-08 (plan-release.md item 2): an UNKNOWN key makes the whole config
+    // invalid, not a warning. unknown_keys carries the full paths in check order
+    // (hotkeys, scanner, sound, vitals sections, vitals names, root last); invalid
+    // = unknown_keys non-empty. Startup: error log + MessageBox + exit 2; runtime: the
+    // current config is kept (main.cpp).
+    std::vector<std::string> unknown_keys;
+    bool invalid = false;
 };
 
-// text: raw config.json content. Missing keys -> defaults; unknown keys -> warning
-// + ignore; invalid values -> warning + default.
+// text: raw config.json content. Missing keys -> defaults; unknown keys -> invalid
+// (config rejected as a whole, plan-release.md item 2); invalid values -> warning + default.
 ConfigResult config_parse(const std::string& text);
 
 // Pretty serialization in the SPEC §5 layout (first-run file creation, round-trip).
@@ -102,11 +109,16 @@ struct ReloadOutcome {
     bool attempt = false;        // stamp changed and the file was read
     bool read_failed = false;    // stamp changed, reading failed (file locked by an editor)
     bool json_broken = false;    // bad JSON / root not object -> current config kept
+    // Added 2026-11-08 (plan-release.md item 2): unknown key -> the reload is refused,
+    // the CURRENT config is kept (same keep rule as json_broken, no MessageBox in
+    // runtime). unknown_keys = the full paths; invalid = unknown_keys non-empty.
+    bool invalid = false;
+    std::vector<std::string> unknown_keys;
     std::string error;           // parse string (position), for the error log
     Config next;                 // validated parse (defaults + warnings, SPEC §5 rules)
     std::vector<std::string> live_changed;     // paths to apply now (plan §2)
     std::vector<std::string> restart_changed;  // paths that need a restart
-    std::vector<std::string> warnings;         // SPEC §5 rules (unknown/invalid)
+    std::vector<std::string> warnings;         // SPEC §5 rules (invalid values)
 };
 
 // current: the running config; prev/cur: the file stamp before/after this cycle; text: raw
@@ -114,8 +126,9 @@ struct ReloadOutcome {
 // empty, next=current; read_ok=false -> read_failed=true, attempt stays false, next=current
 // (main.cpp keeps prev, the next cycle repeats the read); broken JSON -> json_broken=true,
 // error with the parse position, next=current (the app keeps running on the current config,
-// plan §0); valid -> next=config_parse result, diff split into live_changed / restart_changed
-// in canonical order, parse warnings reported.
+// plan §0); unknown key -> invalid=true + unknown_keys, next=current (config rejected as a
+// whole, plan-release.md item 2); valid -> next=config_parse result, diff split into
+// live_changed / restart_changed in canonical order, parse warnings reported.
 ReloadOutcome config_reload(const Config& current, const FileStamp& prev, const FileStamp& cur,
                             const std::string& text, bool read_ok);
 

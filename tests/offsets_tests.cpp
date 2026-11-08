@@ -194,6 +194,23 @@ TEST(offsets_extra_keys_ignored) {
     CHECK_EQ(r.offsets.LocalPlayers, 1472);
 }
 
+// plan-release.md item 1 (SPEC §6): "GameVersion" is the string metadata key written
+// first by find_offsets.py --offsets_parse reads only the §6 key set, so a STRING value
+// of an unknown key is not an error (the app ignores it). The repo offsets.json carries
+// this key, and offsets_real_file_compatible_with_scanner pins the real file.
+TEST(offsets_game_version_string_key_ignored) {
+    auto r = poe2::offsets_parse(R"({"GameVersion":"0.5.5f",
+        "CurrentStatePtr":16,"States":80,"TOTAL":13,
+        "AreaInstanceData":656,"LocalPlayers":1472,"EntityId":136,"EntityIsValid":140,
+        "EntityDetailsName":8,"EntityDetailsLookup":40,"CLU_Bucket":40,
+        "TotalOff":52,"CurrentOff":56,"ReservedOff":28,"ReservedFlat":24,
+        "HealthOff":476,"ManaOff":564,"ESOff":628,"WardOff":788,"RageOff":716,
+        "BackPtrOff":16,"Score":9})");
+    REQUIRE(r.ok);
+    CHECK_EQ(r.offsets.health_base(), 424);
+    CHECK_EQ(r.offsets.TotalOff, 52);
+}
+
 TEST(offsets_broken_json_is_error) {
     auto r = poe2::offsets_parse("{");
     CHECK(!r.ok);

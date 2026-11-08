@@ -32,9 +32,12 @@ struct VitalSendState {
 };
 
 // One key press produced by evaluate() (SPEC §4.7/§4.8). vk/extended feed
-// IKeySender::press; key/threshold/percent build the SPEC §7 debug line
-// "Health 23% < 50%, key=1". percent is the current % of unreserved, printed with the
-// same half-even (python round()) rounding as the tick values line.
+// IKeySender::press; key/threshold/percent build the SPEC §7 press line
+// "Health 23% <= 50%, key=1" (the "<=" form of the 2026-11-08 amendment, plan-release.md
+// item 3: the DISPLAYED percent is half-even rounded, so it can equal the threshold of a
+// legal press - the strict core comparison current*100 < threshold*unreserved stays as is).
+// percent is the current % of unreserved, printed with the same half-even (python round())
+// rounding as the tick values line.
 struct VitalAction {
     int vital = 0;             // VitalIndex (Health..Rage)
     std::string key;           // config key string, e.g. "1"

@@ -93,6 +93,11 @@ private:
     int64_t last_mismatch_ms_ = -1;   // Offsets mismatch warn throttle
     int64_t last_open_ms_ = -1;       // OpenProcess warn throttle
     int64_t last_admin_ms_ = -1;      // ERROR_ACCESS_DENIED error throttle (SPEC §8)
+    // plan-release.md item 4 (SPEC §7, 2026-11-08): the FIRST successful tick of a session
+    // writes its values line at info, so a live run shows what the scanner reads without
+    // dropping to debug. Reset on detach_info() (game close/restart, scanner off, chain
+    // break) and on every InMenu entry: the next zone entry logs its first tick again.
+    bool first_values_logged_ = false;
     // Stage 4: the per-Vital cooldown timers live in the scanner thread (SPEC §4.2),
     // never in the UI. evaluate() updates them on every sent press.
     VitalSendState vitals_state_;
