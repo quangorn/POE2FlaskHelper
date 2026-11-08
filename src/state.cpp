@@ -13,6 +13,7 @@ std::string phase_label(const AppStatus& st) {
     switch (st.phase) {
         case Phase::ScannerOff:     return "Scanner off";
         case Phase::WaitingForGame: return "Waiting for game";
+        case Phase::InMenu:         return "In menu / loading";  // SPEC §4.6 item 5
         case Phase::Attached:       return "Attached (PID " + std::to_string(st.pid) + ")";
         case Phase::AdminRequired:  return "Admin rights required";  // SPEC §8
     }

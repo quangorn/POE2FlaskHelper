@@ -44,16 +44,24 @@ struct VitalVals {
     uint32_t total = 0, current = 0, flat = 0, pct = 0;
 };
 
+// The chain walks pointer by pointer. Three of the pointers are legitimately ZERO
+// while the game is not in a zone: the GameStates object (main menu), the InGameState
+// entry States[4] (login / loading), and AreaInstance (zone loading). SPEC §8 calls
+// this a normal status, so it is reported as `not_in_zone` and must NOT be treated as
+// a chain break (SPEC §4.6 item 5, amended 2026-11-08): the session keeps the handle
+// open and does not detach. Every other failure means the offsets do not fit.
 struct FullChainResult {
     bool ok = false;
     ChainFail fail;
     uint64_t life_addr = 0;
+    bool not_in_zone = false;
 };
 
 struct TickResult {
     bool ok = false;
     ChainFail fail;
     std::array<VitalVals, kVitalCount> vals;   // Health, Mana, EnergyShield, Ward, Rage
+    bool not_in_zone = false;
 };
 
 // std::vector {First,Last,End} triple at addr (SPEC §4.6 vector bounds checks).

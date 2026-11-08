@@ -49,7 +49,14 @@ TEST(chain_gamestate_zero) {
     const auto r = poe2::full_chain(m, rev34(), c);
     CHECK(!r.ok);
     CHECK_EQ(r.fail.step, ChainStep::GameState);
-    CHECK(!c.valid());   // a failed attach leaves no cache
+    // SPEC §4.6 item 5 / SPEC §8 (amended 2026-11-08): the menu is a normal status, not
+    // a chain break. The signature result (global_addr) is kept so entering a zone does
+    // not rescan the image; only the per-zone entries are dropped.
+    CHECK(r.not_in_zone);
+    CHECK(c.valid());
+    CHECK_EQ(c.global_addr, Synth::kGlobal);
+    CHECK_EQ(c.off_lp, -1);
+    CHECK_EQ(c.life_index, -1);
 }
 
 TEST(chain_short_read_current_state_ptr) {
@@ -295,6 +302,7 @@ TEST(tick_process_closed) {
     const auto t = poe2::tick(m, rev34(), c);
     CHECK(!t.ok);
     CHECK_EQ(t.fail.step, ChainStep::GameState);   // first read is the global pointer
+    CHECK(!t.not_in_zone);   // a dead handle is not the menu state (SPEC §4.6 item 5)
 }
 
 TEST(tick_without_cache_is_signature_failure) {
@@ -313,6 +321,35 @@ TEST(tick_area_instance_zero) {
     const auto t = poe2::tick(m, rev34(), c);
     CHECK(!t.ok);
     CHECK_EQ(t.fail.step, ChainStep::AreaInstance);
+    // SPEC §4.6 item 5: this is the main menu / character selection / zone loading
+    // status the session must poll in, not a chain break.
+    CHECK(t.not_in_zone);
+    CHECK(c.valid());   // global_addr stays usable for the next zone entry
+}
+
+TEST(tick_ingame_state_zero) {
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    m.put_u64(Synth::kGsObj + static_cast<uint64_t>(rev34().States) + 4 * 16, 0);
+    const auto t = poe2::tick(m, rev34(), c);
+    CHECK(!t.ok);
+    CHECK_EQ(t.fail.step, ChainStep::States);
+    CHECK(t.not_in_zone);   // States[4] = 0 is login / loading, SPEC §8
+    CHECK(c.valid());
+}
+
+TEST(tick_entity_valid_failure_is_not_the_menu_state) {
+    // The menu classification must not swallow real offset problems: IsValid != 0xC is
+    // an "Offsets mismatch" (SPEC §8) and goes through the chain-break path.
+    FakeMemory m = make_ready();
+    ChainCache c;
+    REQUIRE(poe2::full_chain(m, rev34(), c).ok);
+    m.put_u8(Synth::kEntity + static_cast<uint64_t>(rev34().EntityIsValid), 0xB);
+    const auto t = poe2::tick(m, rev34(), c);
+    CHECK(!t.ok);
+    CHECK_EQ(t.fail.step, ChainStep::EntityValid);
+    CHECK(!t.not_in_zone);
 }
 
 TEST(tick_reserved_flat_above_current_off_no_oob) {

@@ -57,11 +57,36 @@ TEST(tooltip_all_states) {
     st.phase = Phase::WaitingForGame;
     CHECK_EQ(poe2::tooltip_text(st), std::string("Waiting for game"));
 
+    // SPEC §4.6 item 5 / §4.3 (added 2026-11-08): the game is open, not in a zone.
+    st.phase = Phase::InMenu;
+    st.pid = 0;   // apply_scanner_snapshot keeps pid 0 outside Attached (SPEC §4.3)
+    CHECK_EQ(poe2::tooltip_text(st), std::string("In menu / loading"));
+
     st.phase = Phase::Attached;
     st.pid = 1234;
     CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 1234)"));
     st.pid = 4294967295u;  // largest PID on Windows
     CHECK_EQ(poe2::tooltip_text(st), std::string("Attached (PID 4294967295)"));
+}
+
+TEST(tooltip_menu_state_with_hotkey_busy) {
+    // SPEC §4.3 + §4.4: the menu label is exact, fits szTip with the hotkey suffix, and
+    // the merge keeps pid 0 in the menu (the label carries no PID).
+    AppStatus st;
+    st.scanner_enabled = true;
+    CHECK(poe2::apply_scanner_snapshot(st, Phase::InMenu, 4242));
+    CHECK(st.phase == Phase::InMenu);
+    CHECK_EQ(st.pid, 0u);
+    CHECK_EQ(poe2::tooltip_text(st), std::string("In menu / loading"));
+    st.hotkey_busy = true;
+    st.hotkey_text = "Ctrl+9";
+    const std::string t = poe2::tooltip_text(st);
+    CHECK(t.find("In menu / loading") == 0);
+    CHECK(t.find("hotkey Ctrl+9 busy") != std::string::npos);
+    CHECK(t.size() <= 63);
+    st.scanner_enabled = false;
+    CHECK(poe2::apply_scanner_snapshot(st, Phase::InMenu, 4242));
+    CHECK(st.phase == Phase::ScannerOff);
 }
 
 TEST(tooltip_admin_required_status) {

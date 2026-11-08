@@ -1,13 +1,17 @@
 #pragma once
 // ScannerSession (SPEC §4.6, plan.md §1): the state machine
-// waiting -> attach -> reading, driven by an explicit step() with no sleeps in the
-// core. The thread layer (src/scanner.cpp, app layer) calls step() and waits on an
-// event for step_delay_ms(). All OS interaction is injected:
+// waiting -> attach -> menu-poll -> reading, driven by an explicit step() with no
+// sleeps in the core. The thread layer (src/scanner.cpp, app layer) calls step() and
+// waits on an event for step_delay_ms(). All OS interaction is injected:
 // IProcessProvider, IMemoryReaderFactory, IClock, Logger.
 //
 // Caches (SPEC §4.6): global_addr, the actual LocalPlayers offset (+-0x40 window),
 // life_index. Enabled flag and stop request come through ScannerCtl atomics.
 // While the module is OFF the step performs ZERO memory reads (SPEC §4.6).
+// SPEC §4.6 item 5 (added 2026-11-08): in the main menu / character selection /
+// zone loading the session keeps the handle and global_addr alive and polls: the zero
+// GameStates/States[4]/AreaInstance pointers are a normal status (SPEC §8), not a
+// chain break, so there is no attach/detach churn and no per-second log spam.
 
 #include <cstdint>
 #include <memory>
@@ -49,10 +53,11 @@ public:
     void step();
 
     // How long the thread should wait (event with timeout) before the NEXT step:
-    // SPEC §4.6 - game poll 1-2 s while waiting, pollIntervalMs while reading.
+    // SPEC §4.6 - game poll 1-2 s while waiting, 1 s in the menu (item 5),
+    // pollIntervalMs while reading.
     int step_delay_ms() const;
 
-    uint32_t pid() const { return pid_; }        // attached PID (0 = not attached)
+    uint32_t pid() const { return pid_; }        // attached process (0 = no handle open)
     const ChainCache& cache() const { return cache_; }
 
 private:
@@ -60,6 +65,10 @@ private:
     void detach_info(const std::string& reason);
     void attach_step();
     void tick_step();
+    void menu_step();
+    // A real chain break (not the menu state): the 5 s throttled loss line, the detach
+    // and the process-death cache clear (SPEC §4.6 item 4, shared by tick/menu steps).
+    void chain_break(const ChainFail& fail);
 
     Deps deps_;
     ScannerCtl& ctl_;

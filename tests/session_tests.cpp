@@ -240,6 +240,129 @@ TEST(scanner_chain_loss_goes_back_to_waiting_and_reuses_cache) {
     CHECK(attach_reads >= 8 + 11);          // the first attach scanned the image
 }
 
+TEST(scanner_menu_state_is_quiet_and_keeps_the_handle) {
+    // SPEC §4.6 item 5 / SPEC §8 (added 2026-11-08): the game running in the main menu
+    // or on the character selection screen is a normal status. Before this rule the
+    // session detached and re-opened the process every poll: three info lines per
+    // second, the tray tooltip flickering between "Attached (PID n)" and
+    // "Waiting for game", an OpenProcess+CloseHandle cycle per second.
+    Fix f("menu_quiet", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(4242);
+    f.set_in_zone(false);
+    f.session.step();                    // OpenProcess + signature; the chain stops at AreaInstance = 0
+    CHECK(phase_of(f.ctl) == Phase::InMenu);
+    CHECK_EQ(f.ctl.pid.load(), 0u);      // the UI label carries no PID (SPEC §4.3)
+    CHECK_EQ(f.session.step_delay_ms(), 1000);   // SPEC §4.6 item 5: the 1 s cadence
+    AppStatus st;
+    st.scanner_enabled = true;
+    CHECK(poe2::apply_scanner_snapshot(st, phase_of(f.ctl), f.ctl.pid.load()));
+    CHECK_EQ(poe2::tooltip_text(st), std::string("In menu / loading"));
+
+    const int attached_reads = f.mem->reads();
+    for (int i = 0; i < 12; ++i) f.session.step();   // twelve menu polls
+    CHECK(phase_of(f.ctl) == Phase::InMenu);
+    // The whole point of the fix: the state logs ONE line on entry and stays silent.
+    CHECK_EQ(f.count("in menu / loading"), 1);
+    CHECK_EQ(f.count("attached PID 4242"), 1);
+    CHECK_EQ(f.count("detached from"), 0);
+    CHECK_EQ(f.count("waiting for game"), 0);   // the process IS found: not "waiting"
+    CHECK_EQ(f.count("chain lost"), 0);         // SPEC §7: the menu is not a chain loss
+    CHECK_EQ(f.factory.opens, 1);               // one OpenProcess for the whole menu run
+    CHECK_EQ(f.proc.finds, 13);                 // one process poll per step
+    // ~3 reads per menu poll: GameStates, States[4], AreaInstance.
+    CHECK_EQ(f.mem->reads() - attached_reads, 12 * 3);
+}
+
+TEST(scanner_menu_to_zone_logs_one_transition_and_resumes_reading) {
+    Fix f("menu_to_zone", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(4242);
+    f.set_in_zone(false);
+    f.session.step();
+    REQUIRE(phase_of(f.ctl) == Phase::InMenu);
+
+    f.set_in_zone(true);                        // the player entered the zone
+    f.session.step();                           // menu_step: the chain resolves on the open handle
+    CHECK(phase_of(f.ctl) == Phase::Attached);
+    CHECK_EQ(f.ctl.pid.load(), 4242u);
+    CHECK_EQ(f.count("in zone (PID 4242)"), 1);   // one info line for the transition
+    CHECK_EQ(f.count("attached PID 4242"), 1);     // NO second attach line: the handle was reused
+    CHECK_EQ(f.factory.opens, 1);
+    CHECK_EQ(f.session.step_delay_ms(), 50);       // reading cadence (pollIntervalMs)
+    f.session.step();                            // the reading tick
+    CHECK(f.log_text().find("tick: Health 4000/5000") != std::string::npos);
+    CHECK_EQ(f.count("in zone (PID 4242)"), 1);
+}
+
+TEST(scanner_zone_to_menu_is_one_line_not_a_detach_cycle) {
+    Fix f("zone_to_menu", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(4242);
+    f.session.step();                           // attach (signature scan, full chain)
+    REQUIRE(phase_of(f.ctl) == Phase::Attached);
+
+    f.set_in_zone(false);                       // leaving the zone (menu / transition)
+    f.mem->reset_reads();
+    f.session.step();                           // the tick fails at AreaInstance = 0
+    CHECK(phase_of(f.ctl) == Phase::InMenu);
+    CHECK_EQ(f.count("in menu / loading"), 1);
+    CHECK_EQ(f.count("detached from"), 0);
+    CHECK_EQ(f.count("chain lost"), 0);
+    CHECK_EQ(f.factory.opens, 1);
+    CHECK_EQ(f.mem->reads(), 3);                // GameStates + States[4] + AreaInstance
+    for (int i = 0; i < 6; ++i) f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::InMenu);
+    CHECK_EQ(f.count("in menu / loading"), 1);   // the polls stay silent (SPEC §7)
+    CHECK_EQ(f.factory.opens, 1);
+}
+
+TEST(scanner_menu_death_and_restart_rescans_signature) {
+    Fix f("menu_death", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(4242);
+    f.set_in_zone(false);
+    f.session.step();
+    REQUIRE(phase_of(f.ctl) == Phase::InMenu);
+
+    f.proc.kill();                               // the player quit from the menu
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::WaitingForGame);
+    CHECK(f.log_text().find("detached from PID 4242 (game closed in menu)") != std::string::npos);
+    CHECK(f.log_text().find("process closed (PID 4242) - waiting for restart") != std::string::npos);
+    CHECK_EQ(f.count("waiting for game"), 1);
+
+    // SPEC §4.6 item 4: a restarted game is a new process, the signature is rescanned.
+    f.proc.spawn(5000);
+    f.mem->reset_reads();
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::InMenu);
+    CHECK(f.log_text().find("attached PID 5000") != std::string::npos);
+    CHECK(f.mem->reads() >= 8);                 // the chunk scan ran again
+    CHECK_EQ(f.count("in menu / loading"), 2);    // one line per phase entry
+    CHECK_EQ(f.factory.opens, 2);
+}
+
+TEST(scanner_menu_real_chain_failure_still_detaches) {
+    // The menu classification must not hide genuine problems (SPEC §8): a chain break
+    // that is NOT a zero zone pointer still goes through the detach + loss line path.
+    Fix f("menu_real_failure", poe2::config_defaults().scanner);
+    f.ctl.enabled.store(true);
+    f.proc.spawn(4242);
+    f.set_in_zone(false);
+    f.session.step();
+    REQUIRE(phase_of(f.ctl) == Phase::InMenu);
+
+    f.set_in_zone(true);                         // the zone is back, the entity is not valid
+    f.mem->put_u8(Synth::kEntity + static_cast<uint64_t>(rev34().EntityIsValid), 0xB);
+    f.session.step();
+    CHECK(phase_of(f.ctl) == Phase::WaitingForGame);
+    CHECK(f.log_text().find("chain lost (PID 4242): EntityValid") != std::string::npos);
+    CHECK_EQ(f.count("detached from PID 4242"), 1);
+    CHECK_EQ(f.count("in menu / loading"), 1);
+    CHECK_EQ(f.factory.opens, 1);
+}
+
 TEST(scanner_process_death_clears_cache_and_rescans_on_restart) {
     Fix f("restart", poe2::config_defaults().scanner);
     f.ctl.enabled.store(true);
@@ -306,10 +429,13 @@ TEST(offsets_mismatch_logged_once_per_5s) {
     Fix f("mismatch_throttle", poe2::config_defaults().scanner);
     f.ctl.enabled.store(true);
     f.proc.spawn(4242);
-    f.mem->put_u64(Synth::kGlobal, 0);       // chain fails at attach every poll
+    // A genuine offsets problem, SPEC §8: IsValid must be 0xC. (A zero GameStates
+    // pointer is the menu state, SPEC §4.6 item 5, and is not a mismatch - see
+    // scanner_menu_state_is_quiet.)
+    f.mem->put_u8(Synth::kEntity + static_cast<uint64_t>(rev34().EntityIsValid), 0xB);
     f.session.step();
     CHECK(phase_of(f.ctl) == Phase::WaitingForGame);
-    CHECK(f.log_text().find("Offsets mismatch: GameState") != std::string::npos);
+    CHECK(f.log_text().find("Offsets mismatch: EntityValid") != std::string::npos);
     f.session.step();
     f.session.step();
     CHECK_EQ(f.count("Offsets mismatch"), 1);   // throttled inside the 5 s window

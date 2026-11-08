@@ -27,7 +27,13 @@ constexpr uint32_t kCmdToggle = 1001, kCmdExit = 1002;
 // game is elevated and the helper is not. It is a phase (not a separate AppStatus
 // flag) so it travels to the UI through the same ScannerCtl snapshot as the others,
 // and the next successful attach replaces it (recovery is automatic).
-enum class Phase { ScannerOff, WaitingForGame, Attached, AdminRequired };
+// InMenu (SPEC §4.6 item 5, added 2026-11-08): the game process is found and
+// openable, but it is not in a zone (main menu, character selection, zone loading:
+// GameStates / States[4] / AreaInstance read zero). SPEC §8 lists this as a normal
+// status, so the handle stays open and the session polls - it is not a chain break,
+// and it is not "waiting for game" either: the process IS there. No PID is published
+// to the UI (the label carries none), the scanner reads Vital' values in Attached only.
+enum class Phase { ScannerOff, WaitingForGame, InMenu, Attached, AdminRequired };
 
 // Commands the app reacts to: the menu toggle item, the hotkey, Exit.
 enum class TrayCmd { None, Toggle, Exit };
@@ -40,8 +46,9 @@ struct AppStatus {
     std::string hotkey_text;   // registered hotkey string, e.g. "Ctrl+9"
 };
 
-// SPEC §4.3 tooltip strings: "Scanner off" / "Waiting for game" / "Attached (PID n)"
-// (SPEC §8 adds the "Admin rights required" status for a denied OpenProcess).
+// SPEC §4.3 tooltip strings: "Scanner off" / "Waiting for game" / "In menu / loading"
+// / "Attached (PID n)" (SPEC §8 adds the "Admin rights required" status for a denied
+// OpenProcess).
 std::string phase_label(const AppStatus& st);
 // Tooltip text for Shell_NotifyIcon, clamped to the szTip limit (64 wchar).
 // hotkey_busy appends the busy status (SPEC §4.4).

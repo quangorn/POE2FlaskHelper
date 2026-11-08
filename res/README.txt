@@ -22,6 +22,9 @@ Tray status (tooltip over the icon)
 -----------------------------------
   Scanner off          - module switched off, the game memory is not read at all;
   Waiting for game     - module on, the game process is not found yet;
+  In menu / loading    - module on, the game process is open, the game is not in a zone
+   (main menu, character selection, zone loading); the handle stays open, the scanner
+   polls once a second and reads no values;
   Attached (PID n)     - module on, the game values are being read;
   Admin rights required - OpenProcess denied: the game is started as administrator, so
    the helper must be started with the same rights (see "Game run as administrator").
@@ -52,7 +55,10 @@ offsets.json - game offsets, mandatory. After a game patch the values stop match
   next to the exe.
 logs/app.log - UTF-8 log next to the exe, with rotation (logging.level,
   logging.maxSizeKb, logging.keepFiles in config.json). Start, exit, config warnings,
-  hotkey registration, attach/detach, Offsets mismatch are written to the log. Every
+  hotkey registration, attach/detach, Offsets mismatch are written to the log. attach
+  and detach are written once per game process, not once per poll: while the game is in
+  the main menu / character selection / zone loading the log stays silent (status
+  "In menu / loading", one line on entering it). Every
   flask key press is an info line ("Health 23% < 50%, key=1"), and so is the single
   line of a cooldown window in which the value stayed below the threshold ("EnergyShield
   80% < 80%, key=3 held: cooldown left 720 ms") - one such line per window, so you can
@@ -93,6 +99,9 @@ offsets.json обязателен и кладётся рядом с exe: при 
 ----------------------------------
   Scanner off          - модуль выключен, память игры не читается вообще;
   Waiting for game     - модуль включён, процесс игры пока не найден;
+  In menu / loading    - модуль включён, процесс игры открыт, игры в зоне нет (главное
+   меню, выбор персонажа, загрузка зоны); хэндл держится открытым, сканер опрашивает
+   раз в секунду и значений не читает;
   Attached (PID n)     - модуль включён, значения игры читаются;
   Admin rights required - OpenProcess отклонён: игра запущена от администратора, и хелпер
    нужно запускать с теми же правами (см. "Игра, запущенная от администратора").
@@ -123,7 +132,10 @@ offsets.json - смещения игры, обязателен. После па�
   scanner/README.md) и положить новый файл рядом с exe.
 logs/app.log - лог в UTF-8 рядом с exe, с ротацией (logging.level,
   logging.maxSizeKb, logging.keepFiles в config.json). В лог пишутся старт, выход,
-  предупреждения конфига, регистрация хоткея, attach/detach, Offsets mismatch. Каждое
+  предупреждения конфига, регистрация хоткея, attach/detach, Offsets mismatch. attach и
+  detach пишутся один раз на процесс игры, а не на каждый опрос: пока игра находится в
+  главном меню / на экране выбора персонажа / на загрузке зоны, лог молчит (статус
+  "In menu / loading", одна строка на вход). Каждое
   нажатие зелья — info-строка ("Health 23% < 50%, key=1"), и единственная строка окна
   кулдауна, в котором значение оставалось ниже порога ("EnergyShield 80% < 80%, key=3
   held: cooldown left 720 ms") — одна такая строка на окно, по ней видно, что клавиша

@@ -13,6 +13,9 @@ namespace {
 
 // SPEC §4.6 item 1: the process poll runs every 1-2 s while waiting for the game.
 constexpr int kGamePollMs = 1000;
+// SPEC §4.6 item 5 (added 2026-11-08): in the menu / loading the same 1 s cadence
+// applies - the handle is kept open, so a step costs one process poll + ~3 reads.
+constexpr int kMenuPollMs = 1000;
 // SPEC §7: chain-loss / Offsets mismatch messages at most once per 5 s.
 constexpr int64_t kLogWindowMs = 5000;
 // Idle wait while the module is off (no reads, no enumeration; the event wakes the
@@ -46,6 +49,7 @@ std::string phase_name(Phase p) {
     switch (p) {
         case Phase::ScannerOff: return "off";
         case Phase::WaitingForGame: return "waiting";
+        case Phase::InMenu: return "menu";
         case Phase::AdminRequired: return "admin-required";
         default: return "attached";
     }
@@ -85,15 +89,24 @@ ScannerSession::ScannerSession(Deps deps, ScannerCtl& ctl)
 }
 
 void ScannerSession::publish(Phase p, uint32_t pid) {
+    const Phase prev = last_logged_phase_;
     ctl_.phase.store(static_cast<int>(p));
     ctl_.pid.store(p == Phase::Attached ? pid : 0);
-    if (p != last_logged_phase_) {
-        last_logged_phase_ = p;
-        if (p == Phase::WaitingForGame) {
-            // SPEC §7 info: the waiting status is a state change, logged once per
-            // entry (the poll itself stays silent).
-            deps_.log.log(LogLevel::Info, "waiting for game (no configured process found)");
-        }
+    if (p == last_logged_phase_) return;
+    last_logged_phase_ = p;
+    // SPEC §7 (amended 2026-11-08): phase entries are state changes, logged ONCE per
+    // entry - the polls themselves stay silent. The menu line carries the PID because
+    // the handle is open on it; the tooltip label carries none (SPEC §4.3).
+    if (p == Phase::WaitingForGame) {
+        // SPEC §7 info: the waiting status is a state change, logged once per
+        // entry (the poll itself stays silent). Only for the true "no process".
+        deps_.log.log(LogLevel::Info, "waiting for game (no configured process found)");
+    } else if (p == Phase::InMenu) {
+        deps_.log.log(LogLevel::Info, "in menu / loading (PID " + std::to_string(pid) +
+                                      ") - not in a zone");
+    } else if (p == Phase::Attached && prev == Phase::InMenu) {
+        // The handle was already open in the menu: this line marks entering the zone.
+        deps_.log.log(LogLevel::Info, "in zone (PID " + std::to_string(pid) + ")");
     }
 }
 
@@ -156,6 +169,16 @@ void ScannerSession::attach_step() {
     if (!cache_.valid()) {
         const FullChainResult r = full_chain(*reader_, deps_.offs, cache_);
         if (!r.ok) {
+            if (r.not_in_zone) {
+                // SPEC §4.6 item 5 (added 2026-11-08): the game process is openable and
+                // the signature resolved, only the zone pointers are zero (main menu /
+                // character selection / zone loading). SPEC §8 calls this a normal
+                // status, so NO detach, no warn, no chain-loss line: the handle and
+                // global_addr stay alive and menu_step() polls on the 1 s cadence.
+                pid_ = pid;
+                publish(Phase::InMenu, pid);
+                return;
+            }
             // SPEC §8: offsets do not fit -> "Offsets mismatch" status; warn level,
             // at most once per 5 s (SPEC §7).
             if (log_throttle(deps_.clock.now_ms(), kLogWindowMs, last_mismatch_ms_)) {
@@ -203,15 +226,29 @@ void ScannerSession::tick_step() {
         }
         return;
     }
-    // SPEC §4.6 item 4: chain break => back to the process poll. The log is
-    // rate-limited to once per 5 s (SPEC §7).
+    // SPEC §4.6 item 5 (added 2026-11-08): leaving the zone (menu, character selection,
+    // zone loading) is a normal status, not the chain break of SPEC §4.6 item 4. The
+    // handle and global_addr stay alive, the reading cadence switches to the menu poll,
+    // and publish() writes ONE line on the entry. A real chain break still detaches.
+    if (t.not_in_zone) {
+        publish(Phase::InMenu, pid_);
+        return;
+    }
+    // SPEC §4.6 item 4: chain break => back to the process poll.
+    chain_break(t.fail);
+}
+
+void ScannerSession::chain_break(const ChainFail& fail) {
+    // A REAL chain break (the menu state is not one, SPEC §4.6 item 5): the loss line
+    // is rate-limited to once per 5 s (SPEC §7), then the session goes back to the
+    // process poll.
     if (log_throttle(deps_.clock.now_ms(), kLogWindowMs, last_loss_ms_)) {
         deps_.log.log(LogLevel::Info, "chain lost (PID " + std::to_string(pid_) + "): " +
-                                      std::string(chain_step_name(t.fail.step)) +
-                                      " - " + t.fail.detail);
+                                      std::string(chain_step_name(fail.step)) +
+                                      " - " + fail.detail);
     }
     const uint32_t pid = pid_;
-    detach_info(t.fail.detail);
+    detach_info(fail.detail);
     if (!deps_.proc.alive(pid)) {
         // Game process died: caches are dead with it, the signature is rescanned on
         // the next attach (SPEC §4.6: rescan after a game restart).
@@ -220,6 +257,43 @@ void ScannerSession::tick_step() {
                                       ") - waiting for restart");
     }
     publish(Phase::WaitingForGame, 0);
+}
+
+void ScannerSession::menu_step() {
+    // SPEC §4.6 item 5 (added 2026-11-08): the handle and global_addr are alive and the
+    // game is not in a zone. The step re-checks the process first, so a game that
+    // closed or restarted while in the menu leaves the state cleanly.
+    const auto found = deps_.proc.find(deps_.cfg.processNames);
+    if (found.empty()) {
+        const uint32_t pid = pid_;
+        detach_info("game closed in menu");
+        cache_.clear();   // SPEC §4.6: the caches die with the process
+        deps_.log.log(LogLevel::Info, "process closed (PID " + std::to_string(pid) +
+                                      ") - waiting for restart");
+        publish(Phase::WaitingForGame, 0);
+        return;
+    }
+    if (found[0].pid != pid_) {
+        // A restarted game (new PID): its signature is rescanned by attach_step.
+        detach_info("game restarted in menu (PID " + std::to_string(pid_) + " -> " +
+                    std::to_string(found[0].pid) + ")");
+        cache_.clear();
+        attach_step();
+        return;
+    }
+    const TickResult t = tick(*reader_, deps_.offs, cache_);
+    if (t.ok) {
+        // The zone is ready: reading resumes on the open handle, with the ONE
+        // zone-entry info line from publish() (SPEC §7).
+        publish(Phase::Attached, pid_);
+        return;
+    }
+    if (t.not_in_zone) {
+        // Still menu / loading: stay in the phase, no line, no re-open (SPEC §4.6 item 5).
+        publish(Phase::InMenu, pid_);
+        return;
+    }
+    chain_break(t.fail);
 }
 
 void ScannerSession::step() {
@@ -235,6 +309,8 @@ void ScannerSession::step() {
     const Phase cur = static_cast<Phase>(ctl_.phase.load());
     if (cur == Phase::Attached) {
         tick_step();
+    } else if (cur == Phase::InMenu) {
+        menu_step();
     } else {
         attach_step();
     }
@@ -246,6 +322,8 @@ int ScannerSession::step_delay_ms() const {
     if (cur == Phase::Attached) {
         return std::clamp(deps_.cfg.pollIntervalMs, 10, 1000);
     }
+    // SPEC §4.6 item 5: the menu cadence is the process-poll cadence (1-2 s).
+    if (cur == Phase::InMenu) return kMenuPollMs;
     return kGamePollMs;
 }
 

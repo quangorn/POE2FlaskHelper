@@ -80,6 +80,13 @@ struct Fix {
         mem->put_u32(Synth::kLife + static_cast<uint64_t>(base + o.CurrentOff), current);
     }
 
+    // SPEC §4.6 item 5 (added 2026-11-08): "the game is not in a zone" is exactly the
+    // AreaInstance pointer going to zero (main menu, character selection, zone loading).
+    void set_in_zone(bool in_zone) {
+        mem->put_u64(Synth::kIngame + static_cast<uint64_t>(rev34().AreaInstanceData),
+                     in_zone ? Synth::kArea : 0);
+    }
+
     std::string log_text() {
         logger.flush();
         return poe2::testing::read_file(log_path);

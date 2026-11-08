@@ -173,7 +173,12 @@ FullChainResult full_chain(IMemoryReader& m, const Offsets& o, ChainCache& cache
     }
     if (*gs == 0) {
         r.fail = {ChainStep::GameState, "GameStates pointer = 0 (menu / not in game)"};
-        cache.clear();
+        r.not_in_zone = true;
+        // SPEC §4.6 item 5: the menu is not a chain break. Keep global_addr (the
+        // signature pass is the expensive part, 1 MB chunks) and drop only the
+        // per-zone cache entries, so entering a zone does not rescan the image.
+        cache.off_lp = -1;
+        cache.life_index = -1;
         return r;
     }
 
@@ -216,7 +221,15 @@ FullChainResult full_chain(IMemoryReader& m, const Offsets& o, ChainCache& cache
     const TickResult t = tick(m, o, cache);
     if (!t.ok) {
         r.fail = t.fail;
-        cache.clear();   // attach did not produce a usable cache
+        r.not_in_zone = t.not_in_zone;
+        if (t.not_in_zone) {
+            // The game is in the menu / loading (SPEC §4.6 item 5): keep global_addr
+            // and drop the per-zone entries, so the zone entry does not rescan.
+            cache.off_lp = -1;
+            cache.life_index = -1;
+        } else {
+            cache.clear();   // attach did not produce a usable cache
+        }
         return r;
     }
     r.ok = true;
@@ -239,6 +252,7 @@ TickResult tick(IMemoryReader& m, const Offsets& o, ChainCache& cache) {
     }
     if (*gs == 0) {
         r.fail = {ChainStep::GameState, "GameStates pointer = 0 (menu / loading)"};
+        r.not_in_zone = true;   // SPEC §8: a normal status, not a chain break
         return r;
     }
     const uint64_t gst = *gs;
@@ -260,6 +274,7 @@ TickResult tick(IMemoryReader& m, const Offsets& o, ChainCache& cache) {
     const uint64_t ingame = block_u64(states.data(), kIngameIndex * 16);
     if (!ingame) {
         r.fail = {ChainStep::States, "InGameState (States[4]) = 0 (loading / menu)"};
+        r.not_in_zone = true;
         return r;
     }
 
@@ -267,6 +282,7 @@ TickResult tick(IMemoryReader& m, const Offsets& o, ChainCache& cache) {
     const auto area = rd_u64(m, ingame + static_cast<uint64_t>(o.AreaInstanceData));
     if (!area || !*area) {
         r.fail = {ChainStep::AreaInstance, "AreaInstance = 0 (zone loading)"};
+        r.not_in_zone = true;
         return r;
     }
 
