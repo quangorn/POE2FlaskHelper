@@ -29,7 +29,7 @@ std::vector<uint8_t> make_wav(const std::vector<int16_t>& samples, uint16_t form
     };
     const size_t data_len = samples.size() * 2;
     out.insert(out.end(), {'R', 'I', 'F', 'F'});
-    u32(4 + (8 + 16) + (8 + data_len));  // RIFF body: WAVE + fmt chunk + data chunk
+    u32(static_cast<uint32_t>(4 + (8 + 16) + (8 + data_len)));  // RIFF body: WAVE + fmt + data
     out.insert(out.end(), {'W', 'A', 'V', 'E'});
     out.insert(out.end(), {'f', 'm', 't', ' '});
     u32(16); u16(format); u16(1); u32(44100); u32(44100 * 2); u16(2); u16(16);
