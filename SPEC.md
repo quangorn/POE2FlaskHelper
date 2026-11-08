@@ -197,12 +197,13 @@ src/vital_math.{h,cpp} ceil-формула резервов зелий
 src/vitals.{h,cpp}     evaluate(): порог, кулдаун, foreground
 src/scanner_session.{h,cpp} state machine сканера, step()
 src/scanner_ctl.h      ScannerCtl: атомиксы enable/stop + снимок phase/pid (UI ↔ поток)
+src/wav.{h,cpp}       PCM16-масштабирование WAV-байт (sound.volume, §4.5)
 src/clock.h            интерфейс IClock
 exe (граница ОС — весь Win32 здесь):
 src/main.cpp           WinMain, single instance, message loop, --version
 src/tray.{h,cpp}       иконка, контекстное меню из двух пунктов, скрытое окно
 src/hotkeys.{h,cpp}    RegisterHotKey
-src/sound.{h,cpp}      PlaySound из ресурсов
+src/sound.{h,cpp}      PlaySound из ресурсов + PCM16-громкость (SND_MEMORY, §4.5)
 src/scanner.{h,cpp}    рабочий поток-обёртка над ScannerSession (atomic + событие)
 src/game_process.{h,cpp} поиск PID/foreground/liveness; заменяет плановый
                        process.{h,cpp}: имя collide'ит с UCRT <process.h>
@@ -305,6 +306,12 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
   процесс игры найден и открыт, но игры в зоне нет (§4.6 п.5). PID в тултипе не
   показывается (PID публикуется только в `Attached`), строка вместе с суффиксом
   занятого хоткея влезает в `szTip` (64 wchar).
+- Фикс 2026-11-08: при `NOTIFYICON_VERSION_4` стандартный тултип подавлен по
+  умолчанию (NOTIFYICONDATA szTip Remarks), наведение на иконку ничего не показывало.
+  `NIF_SHOWTIP` добавлен в `uFlags` при `NIM_ADD` и `NIM_MODIFY` — тултип появляется
+  при наведении. Ограничение строки остаётся классическим (63 символа), v4-раскладка
+  позволила бы 127; кламп 63 сохраняется ради совместимости, когда `NIM_SETVERSION`
+  не прошёл (warn-путь `tray.cpp`).
 
 ### 4.4 Хоткей
 
@@ -322,6 +329,15 @@ config.json offsets.json offsets_selftest.json (selftest-данные scanner/fi
 - `PlaySound(MAKEINTRESOURCE(...), hInst, SND_RESOURCE | SND_ASYNC | SND_NODEFAULT)`;
   UI не блокируется.
 - Ошибка ресурса — warning, переключение происходит без звука.
+- Добавлено 2026-11-08 (backlog «Громкость WAV»): `sound.volume` (0–100 %, по
+  умолчанию 100, §5). WAV-ресурс читается в память (`FindResource`/`LoadResource`),
+  int16-семплы PCM16 масштабируются коэффициентом `volume/100` чистой функцией ядра
+  `apply_pcm_gain` (`src/wav.cpp`, тестируется без Win32), проигрывание через
+  `PlaySoundW(ptr, hInst, SND_MEMORY | SND_ASYNC | SND_NODEFAULT)`. Масштабирование
+  выполняется на каждое проигрывание — значение берётся из живого конфига, это шов
+  для будущего reload конфига на лету. Non-PCM16/битый WAV — масштабирование
+  пропускается, играет оригинал через `SND_RESOURCE` (warn-путь §8). `volume: 0` —
+  тишина. Системная громкость не трогается.
 
 ### 4.6 Сканер
 
@@ -410,6 +426,7 @@ detach (выключение сканера, разрыв цепочки) зак
     "requireGameForeground": true,
     "processNames": ["PathOfExile.exe", "PathOfExile_x64.exe", "PathOfExileSteam.exe", "PathOfExile_KG.exe"]
   },
+  "sound": { "volume": 100 },
   "vitals": {
     "Health":       { "enabled": true,  "key": "1", "threshold": 50, "cooldownMs": 1000 },
     "Mana":         { "enabled": true,  "key": "2", "threshold": 40, "cooldownMs": 1000 },
@@ -426,7 +443,8 @@ detach (выключение сканера, разрыв цепочки) зак
 - неизвестные ключи — warning в лог, игнорируются;
 - отсутствующие — значения по умолчанию;
 - невалидные (`threshold` вне 1–100, `cooldownMs < 0`, `pollIntervalMs` вне 10–1000,
-  неизвестная клавиша, хоткей без модификатора) — warning и значение по умолчанию;
+  `sound.volume` вне 0–100, неизвестная клавиша, хоткей без модификатора) — warning
+  и значение по умолчанию;
 - битый JSON — error в лог, MessageBox, работа на значениях по умолчанию;
 - ключи Vital'ов пишутся одиночными клавишами без модификаторов (буквы, цифры,
   F1–F24, NumPad).

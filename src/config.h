@@ -24,6 +24,10 @@ struct ScannerCfg {
     std::vector<std::string> processNames;
 };
 
+struct SoundCfg {
+    int volume = 100;  // percent 0..100 (SPEC §5, backlog "Громкость WAV")
+};
+
 struct LogCfg {
     std::string level = "info";      // debug | info | warn | error
     std::string file = "logs/app.log";
@@ -39,6 +43,7 @@ struct Config {
     int configVersion = 1;
     std::string toggleHotkey = "Ctrl+9";
     ScannerCfg scanner;
+    SoundCfg sound;
     std::array<VitalCfg, kVitalCount> vitals;
     LogCfg logging;
 };

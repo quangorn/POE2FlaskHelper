@@ -25,7 +25,8 @@ static bool cfg_eq(const Config& a, const Config& b) {
             || x.threshold != y.threshold || x.cooldownMs != y.cooldownMs) return false;
     }
     return a.logging.level == b.logging.level && a.logging.file == b.logging.file
-        && a.logging.maxSizeKb == b.logging.maxSizeKb && a.logging.keepFiles == b.logging.keepFiles;
+        && a.logging.maxSizeKb == b.logging.maxSizeKb && a.logging.keepFiles == b.logging.keepFiles
+        && a.sound.volume == b.sound.volume;
 }
 
 static const char* kSpecConfig = R"(
@@ -38,6 +39,7 @@ static const char* kSpecConfig = R"(
     "requireGameForeground": true,
     "processNames": ["PathOfExile.exe", "PathOfExile_x64.exe", "PathOfExileSteam.exe", "PathOfExile_KG.exe"]
   },
+  "sound": { "volume": 25 },
   "vitals": {
     "Health":       { "enabled": true,  "key": "1", "threshold": 50, "cooldownMs": 1000 },
     "Mana":         { "enabled": true,  "key": "2", "threshold": 40, "cooldownMs": 1000 },
@@ -72,6 +74,7 @@ TEST(config_spec_file_defaults) {
     CHECK_EQ(c.logging.file, std::string("logs/app.log"));
     CHECK_EQ(c.logging.maxSizeKb, 1024);
     CHECK_EQ(c.logging.keepFiles, 3);
+    CHECK_EQ(c.sound.volume, 25);  // the repo config.json value (SPEC §5)
 }
 
 TEST(config_missing_keys_defaults) {
@@ -188,6 +191,37 @@ TEST(config_broken_json_runs_on_defaults) {
     CHECK(cfg_eq(r.cfg, config_defaults()));  // defaults, untouched
     auto nonobject = config_parse("42");
     CHECK(nonobject.jsonBroken);  // valid JSON, not the schema
+}
+
+TEST(config_sound_volume) {
+    // SPEC §5 rules for sound.volume (backlog "Громкость WAV").
+    auto r = config_parse(R"({"sound":{"volume":25}})");
+    CHECK(!r.jsonBroken);
+    CHECK_EQ(r.warnings.size(), 0u);
+    CHECK_EQ(r.cfg.sound.volume, 25);
+    auto def = config_parse("{}");  // missing section is silent, default 100
+    CHECK_EQ(def.cfg.sound.volume, 100);
+    auto bad = config_parse(R"({"sound":{"volume":101}})");     // out of 0..100
+    CHECK_EQ(bad.cfg.sound.volume, 100);
+    CHECK_EQ(bad.warnings.size(), 1u);
+    auto type = config_parse(R"({"sound":{"volume":"25"}})");   // string is not an int
+    CHECK_EQ(type.cfg.sound.volume, 100);
+    CHECK_EQ(type.warnings.size(), 1u);
+    auto zero = config_parse(R"({"sound":{"volume":0}})");      // 0 is a valid boundary
+    CHECK_EQ(zero.warnings.size(), 0u);
+    CHECK_EQ(zero.cfg.sound.volume, 0);
+    auto unk = config_parse(R"({"sound":{"mute":true}})");      // unknown key of the section
+    CHECK_EQ(unk.warnings.size(), 1u);
+    CHECK_EQ(unk.cfg.sound.volume, 100);
+    auto sec = config_parse(R"({"sound":5})");                  // section is not an object
+    CHECK_EQ(sec.warnings.size(), 1u);
+    CHECK_EQ(sec.cfg.sound.volume, 100);
+    // Round-trip: sound survives serialize (the first-run file layout).
+    Config c = config_defaults();
+    c.sound.volume = 25;
+    auto rt = config_parse(config_serialize(c));
+    CHECK_EQ(rt.warnings.size(), 0u);
+    CHECK(cfg_eq(rt.cfg, c));
 }
 
 TEST(config_first_run_creates_default_file) {

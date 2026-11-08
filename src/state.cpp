@@ -4,7 +4,9 @@ namespace poe2 {
 
 namespace {
 
-// Shell_NotifyIconW szTip is WCHAR[64]; clamping keeps the tray call valid.
+// The classic (pre-v4) Shell_NotifyIconW szTip is WCHAR[64]; NOTIFYICON_VERSION_4
+// allows 127 chars. Clamping to the classic limit keeps the tooltip valid when
+// NIM_SETVERSION(v4) fails (tray.cpp logs that case as a warning).
 constexpr size_t kTipMax = 63;
 
 }  // namespace

@@ -50,8 +50,8 @@ struct AppStatus {
 // / "Attached (PID n)" (SPEC §8 adds the "Admin rights required" status for a denied
 // OpenProcess).
 std::string phase_label(const AppStatus& st);
-// Tooltip text for Shell_NotifyIcon, clamped to the szTip limit (64 wchar).
-// hotkey_busy appends the busy status (SPEC §4.4).
+// Tooltip text for Shell_NotifyIcon, clamped to the classic szTip limit (63 chars;
+// v4 allows 127, see the state.cpp note). hotkey_busy appends the busy status (SPEC §4.4).
 std::string tooltip_text(const AppStatus& st);
 
 struct MenuItem { std::string label; bool checked; uint32_t cmd; };

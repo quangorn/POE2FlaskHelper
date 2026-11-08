@@ -18,6 +18,7 @@ constexpr int kPollMin = 10, kPollMax = 1000;
 constexpr int kSizeKbMin = 1, kSizeKbMax = 100000;
 constexpr int kKeepMin = 1, kKeepMax = 100;
 constexpr int kVersionMin = 1, kVersionMax = 100;
+constexpr int kVolumeMin = 0, kVolumeMax = 100;
 
 void warn(std::vector<std::string>& w, const std::string& msg) { w.push_back(msg); }
 
@@ -79,6 +80,7 @@ Config config_defaults() {
     c.scanner.requireGameForeground = true;
     c.scanner.processNames = {"PathOfExile.exe", "PathOfExile_x64.exe",
                               "PathOfExileSteam.exe", "PathOfExile_KG.exe"};
+    c.sound.volume = 100;
     c.vitals[kHealth] = {true, "1", 50, 1000};
     c.vitals[kMana] = {true, "2", 40, 1000};
     c.vitals[kEnergyShield] = {false, "3", 35, 1000};
@@ -168,6 +170,17 @@ ConfigResult config_parse(const std::string& text) {
         }
     }
 
+    // sound. Missing section = defaults, silent (SPEC §5, backlog "Громкость WAV").
+    static const char* const kSoundKeys[] = {"volume"};
+    const Json* sn = root.find("sound");
+    if (sn && !sn->is_object()) {
+        warn(r.warnings, "invalid \"sound\", defaults used");
+    } else if (sn) {
+        check_unknown(*sn, kSoundKeys, 1, "sound.", r.warnings);
+        r.cfg.sound.volume = int_field(*sn, "volume", kVolumeMin, kVolumeMax,
+                                       100, r.warnings, "sound.volume");
+    }
+
     // vitals. Missing section = defaults, silent.
     const Json* vt = root.find("vitals");
     if (vt && !vt->is_object()) {
@@ -232,8 +245,8 @@ ConfigResult config_parse(const std::string& text) {
     }
 
     static const char* const kRootKeys[] = {"configVersion", "hotkeys", "scanner",
-                                            "vitals", "logging"};
-    check_unknown(root, kRootKeys, 5, "", r.warnings);
+                                            "sound", "vitals", "logging"};
+    check_unknown(root, kRootKeys, 6, "", r.warnings);
     return r;
 }
 
@@ -255,6 +268,10 @@ std::string config_serialize(const Config& cfg) {
     }
     sc.add("processNames", std::move(pn));
     root.add("scanner", std::move(sc));
+
+    Json snd = Json::object();
+    snd.add("volume", Json::integer(cfg.sound.volume));
+    root.add("sound", std::move(snd));
 
     Json vitals = Json::object();
     for (size_t i = 0; i < kVitalCount; ++i) {

@@ -68,14 +68,17 @@ static std::string to_utf8(const wchar_t* w) {
 // Enable/disable path, shared by the hotkey and the tray menu (SPEC §4.5: both toggle
 // the state and play the matching WAV). State transition + WAV id come from pure core
 // code (state.cpp); PlaySound is async, so the UI is never blocked on the sound.
+// volume comes from the live config (sound.volume, SPEC §5): play_wav scales the WAV
+// on every call, so a runtime config reload can change it between plays (the value
+// is read once per run today - SPEC §5, right config reload is a backlog item).
 // The scanner enable flag is an atomic in ScannerCtl: the thread sees it on its next
 // wake, no UI call crosses into the thread.
 static void toggle_scanner(poe2::AppStatus& st, poe2::Scanner& scanner,
-                           poe2::Logger& logger, HINSTANCE hInst, bool enable) {
+                           poe2::Logger& logger, HINSTANCE hInst, int volume, bool enable) {
     const uint16_t wav = poe2::set_scanner_enabled(st, enable);
     scanner.set_enabled(enable);
     logger.log(poe2::LogLevel::Info, enable ? "scanner enabled" : "scanner disabled");
-    if (!poe2::play_wav(wav, hInst)) {
+    if (!poe2::play_wav(wav, hInst, volume)) {
         // SPEC §4.5: resource error is a warning, the toggle already happened.
         logger.log(poe2::LogLevel::Warn,
                    "sound resource failed (PlaySound), toggle proceeds without sound");
@@ -161,6 +164,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     for (const auto& w : cres.warnings) {
         logger.log(poe2::LogLevel::Warn, w);
     }
+    logger.log(poe2::LogLevel::Info, "sound volume " + std::to_string(cres.cfg.sound.volume) + "%");
 
     // 2. offsets.json: mandatory. Missing/non-numeric/invalid -> error log +
     //    MessageBox + exit code 2 (SPEC §6, §8).
@@ -233,7 +237,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     // refresh the tooltip. Exit is handled by the tray WndProc (PostQuitMessage).
     host.on_cmd = [&](poe2::TrayCmd cmd) {
         if (cmd == poe2::TrayCmd::Toggle) {
-            toggle_scanner(status, scanner, logger, hInst, !status.scanner_enabled);
+            toggle_scanner(status, scanner, logger, hInst, cres.cfg.sound.volume,
+                           !status.scanner_enabled);
             tray.update_tooltip();  // tooltip reflects the new state (SPEC §4.3)
         }
     };
@@ -270,7 +275,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         // same toggle_scanner() code, so the WAV plays here too).
         if (cres.cfg.scanner.enabledOnStart) {
             logger.log(poe2::LogLevel::Info, "scanner.enabledOnStart is true, enabling at startup");
-            toggle_scanner(status, scanner, logger, hInst, true);
+            toggle_scanner(status, scanner, logger, hInst, cres.cfg.sound.volume, true);
             tray.update_tooltip();
         }
 

@@ -9,7 +9,8 @@
 - [`SPEC.md`](SPEC.md) — спецификация приложения: стек, сборка, конфиг, поведение
   трея и сканера, критерии приёмки.
 - [`plan.md`](plan.md) — план этапов реализации.
-- [`backlog.md`](backlog.md) — что отложено (окно настройки конфига, громкость WAV).
+- [`backlog.md`](backlog.md) — что отложено (окно настройки конфига). Громкость WAV
+  реализована 2026-11-08 (`sound.volume`).
 - [`CHANGELOG.md`](CHANGELOG.md) — история версий и правила подъёма (`1.major.minor`).
 - [`version.sh`](version.sh) — подъём версии (`major`/`minor`/`series`) и гейт
   согласованности «код ↔ версия» для `build.sh` (SPEC §2.4).
@@ -17,8 +18,8 @@
   Russian); `configure_file` подставляет в него версию проекта, `build.sh` копирует
   сгенерированный файл в корень архива.
 - [`src/`](src) — код: чистое ядро `poe2_core` (json, config, offsets, log, state, keys,
-  signature, chain, vital_math, vitals, scanner_session, clock) и exe-слой со всем Win32
-  (main, tray, hotkeys, sound, scanner, game_process, win_keys, mem/, system_clock,
+  signature, chain, vital_math, vitals, scanner_session, wav, clock) и exe-слой со всем
+  Win32 (main, tray, hotkeys, sound, scanner, game_process, win_keys, mem/, system_clock,
   res_ids).
 - [`tests/`](tests) — мини-фреймворк `test.h` + `*_tests.cpp` + фейки
   (`FakeMemory`, `FakeClock`, `FakeProcess`, `RecordingKeySender`) и синтетический образ

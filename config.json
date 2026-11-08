@@ -7,6 +7,7 @@
     "requireGameForeground": true,
     "processNames": ["PathOfExile.exe", "PathOfExile_x64.exe", "PathOfExileSteam.exe", "PathOfExile_KG.exe"]
   },
+  "sound": { "volume": 25 },
   "vitals": {
     "Health":       { "enabled": true,  "key": "1", "threshold": 50, "cooldownMs": 1000 },
     "Mana":         { "enabled": true,  "key": "2", "threshold": 40, "cooldownMs": 1000 },

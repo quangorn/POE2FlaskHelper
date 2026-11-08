@@ -57,6 +57,7 @@ add_library(poe2_core STATIC
     src/vital_math.cpp
     src/vitals.cpp
     src/scanner_session.cpp
+    src/wav.cpp
     src/app.cpp)
 target_include_directories(poe2_core PUBLIC ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(poe2_core PUBLIC UNICODE _UNICODE)
@@ -107,6 +108,7 @@ add_executable(poe2_tests
     tests/hotkey_tests.cpp
     tests/keymap_tests.cpp
     tests/state_tests.cpp
+    tests/wav_tests.cpp
     tests/scanner_thread_tests.cpp
     tests/offsets_tests.cpp
     tests/log_tests.cpp

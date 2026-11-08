@@ -35,7 +35,8 @@ the program keeps working, the tray menu remains available.
 Controls
 --------
 Ctrl+9 - global hotkey, switches the scanner module on and off. It works while the
-game has the focus. Enabling plays enable.wav, disabling plays disable.wav.
+game has the focus. Enabling plays enable.wav, disabling plays disable.wav, at the
+config sound.volume level (0 = silent).
 Right-click the tray icon - a two-item menu:
   Enabled / Disabled - the switch; the text shows the current state, the checkmark
   marks the enabled module; clicking does the same as Ctrl+9.
@@ -45,7 +46,8 @@ Double-click on the icon does nothing.
 Files (everything lives next to the exe, the current directory is ignored)
 --------------------------------------------------------------------------
 config.json  - settings: scanner switch at start (enabledOnStart), poll interval,
-  requireGameForeground, process names, the Ctrl+9 hotkey, and for each Vital:
+  requireGameForeground, process names, the Ctrl+9 hotkey, sound volume (sound.volume,
+  0-100 % for enable.wav/disable.wav, 100 by default), and for each Vital:
   enabled, key, threshold (1-100 %), cooldownMs. The file is read once at startup:
   edit it and restart the program to apply changes.
 offsets.json - game offsets, mandatory. After a game patch the values stop matching
@@ -112,7 +114,8 @@ offsets.json обязателен и кладётся рядом с exe: при 
 Управление
 ---------
 Ctrl+9 - глобальный хоткей, включает и выключает модуль сканирования. Работает, когда
-фокус у игры. Включение сопровождается звуком enable.wav, выключение - disable.wav.
+фокус у игры. Включение сопровождается звуком enable.wav, выключение - disable.wav, с
+громкостью из конфига sound.volume (0 = тишина).
 ПКМ по иконке - меню из двух пунктов:
   Enabled / Disabled - переключатель; текст показывает текущее состояние, галочка
   отмечает включённый модуль; клик делает то же, что Ctrl+9.
@@ -122,7 +125,8 @@ Ctrl+9 - глобальный хоткей, включает и выключае
 Файлы (всё рядом с exe, текущая папка игнорируется)
 -----------------------------------------------------
 config.json  - настройки: включение сканера при старте (enabledOnStart), интервал
-  опроса, requireGameForeground, имена процессов, хоткей Ctrl+9, и для каждого
+  опроса, requireGameForeground, имена процессов, хоткей Ctrl+9, громкость звука
+  (sound.volume, 0-100 % для enable.wav/disable.wav, по умолчанию 100), и для каждого
   Vital'а: enabled, клавиша, порог (1-100 %), cooldownMs. Файл читается один раз на
   старте: чтобы применить изменения, отредактируйте его и перезапустите программу.
 offsets.json - смещения игры, обязателен. После патча игры смещения перестают

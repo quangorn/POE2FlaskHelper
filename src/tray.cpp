@@ -170,7 +170,10 @@ void Tray::show_menu() {
 
 bool Tray::add_icon() {
     nid_.hWnd = hwnd_;  // Shell_NotifyIcon needs the notification window (NIM_ADD fails without it)
-    nid_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+    // NIF_SHOWTIP: NOTIFYICON_VERSION_4 suppresses the standard tooltip by default
+    // (NOTIFYICONDATA szTip Remarks, learn.microsoft.com); the flag restores the
+    // hover tooltip for both ADD and MODIFY. Without it the icon shows no tooltip.
+    nid_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
     nid_.uCallbackMessage = kTrayMsg;
     nid_.hIcon = LoadIconW(host_.hInst, MAKEINTRESOURCEW(IDI_APP_ICON));
     copy_wide(to_wide(tooltip_text(host_.status)), nid_.szTip,
@@ -198,7 +201,7 @@ bool Tray::add_icon() {
 
 void Tray::update_tooltip() {
     if (!icon_added_) return;
-    nid_.uFlags = NIF_TIP;
+    nid_.uFlags = NIF_TIP | NIF_SHOWTIP;  // v4 needs the flag on every MODIFY (add_icon note)
     copy_wide(to_wide(tooltip_text(host_.status)), nid_.szTip,
               sizeof nid_.szTip / sizeof nid_.szTip[0]);
     Shell_NotifyIconW(NIM_MODIFY, &nid_);
