@@ -10,15 +10,17 @@
 #                                            build.sh перед упаковкой (exit 0 = ок).
 #
 # --en обязателен (2026-11-08, plan-release.md п. 8): заметка релиза пишется на английском и
-# живёт в CHANGELOG.en.md — её берёт release.sh как body GitHub-релиза. Русская запись
-# CHANGELOG.md остаётся.
+# живёт в CHANGELOG.md (rename 2026-11-09, README convention: plain CHANGELOG.md is the
+# English file) — её берёт release.sh как body GitHub-релиза. Русская запись
+# живёт в CHANGELOG.ru.md.
 #
 # Format is 1.major.minor (S.major.minor): the leading digit is the series, always 1
 # until a substantial architecture rework; major bumps on new features, minor on fixes.
 # Single source of the number: project(POE2FlaskHelper VERSION ...) in CMakeLists.txt;
 # it reaches build/version.h (--version, start log), VERSIONINFO, the manifest and the
-# zip name (SPEC §2.2). The history lives in CHANGELOG.md. Commits and tags are manual:
-# version.sh touches exactly CMakeLists.txt + CHANGELOG.md and never commits.
+# zip name (SPEC §2.2). History: CHANGELOG.md (English, the release-note body of release.sh)
+# + CHANGELOG.ru.md (Russian rules+entries). Commits and tags are manual:
+# version.sh touches exactly CMakeLists.txt + CHANGELOG.md + CHANGELOG.ru.md and never commits.
 set -o pipefail
 
 cd "$(dirname "$0")"
@@ -124,11 +126,11 @@ major|minor|series)  # ------------------------- bump -------------------------
     done
     [ -n "$DESC" ] || die "нужно описание записи CHANGELOG: ./version.sh $CLASS \"описание\" --en \"English note\" [--force]"
     [ -n "$EN" ] || die "нужна англоязычная заметка релиза: --en \"English release note\" (body GitHub-релиза, plan-release.md п. 8)"
-    [ -f CHANGELOG.md ] || die "CHANGELOG.md отсутствует (история версий, SPEC §2.4)"
-    [ -f CHANGELOG.en.md ] || die "CHANGELOG.en.md отсутствует (английские заметки релизов, SPEC §2.4)"
+    [ -f CHANGELOG.md ] || die "CHANGELOG.md отсутствует (английские заметки релизов, SPEC §2.4)"
+    [ -f CHANGELOG.ru.md ] || die "CHANGELOG.ru.md отсутствует (русская история версий, SPEC §2.4)"
     need_git
-    dirty=$(git status --porcelain -- CMakeLists.txt CHANGELOG.md CHANGELOG.en.md)
-    [ -z "$dirty" ] || die "CMakeLists.txt/CHANGELOG.md/CHANGELOG.en.md имеют незакоммиченные правки — сначала коммит, потом подъём версии"
+    dirty=$(git status --porcelain -- CMakeLists.txt CHANGELOG.md CHANGELOG.ru.md)
+    [ -z "$dirty" ] || die "CMakeLists.txt/CHANGELOG.md/CHANGELOG.ru.md имеют незакоммиченные правки — сначала коммит, потом подъём версии"
 
     ver=$(head_version)
     [ -n "$ver" ] || die "CMakeLists.txt has no 'project(POE2FlaskHelper VERSION x.y.z LANGUAGES CXX RC)' line — version.sh edits exactly that line, its shape is the contract (SPEC §2.4)"
@@ -161,12 +163,12 @@ major|minor|series)  # ------------------------- bump -------------------------
 
     # CHANGELOG entries are newest-first: the entry goes before the first version heading.
     # cp (not mv) keeps the target's permissions — cygwin mv cannot preserve them here.
-    # The English entry of CHANGELOG.en.md is the release-note body of release.sh (plan-release.md
-    # п. 8): the same newest-first shape, added from the --en description.
+    # The English entry of CHANGELOG.md is the release-note body of release.sh (plan-release.md
+    # п. 8; rename 2026-11-09): the same newest-first shape, added from the --en description.
     # awk writes LF, so the entry of a CRLF-dominant file gets mixed EOL (R1-11). The dominant
     # EOL of each target is read BEFORE the rewrite and applied to the whole file after it.
-    MD_CRLF=0; grep -q $'\r' CHANGELOG.md && MD_CRLF=1
-    EN_CRLF=0; grep -q $'\r' CHANGELOG.en.md && EN_CRLF=1
+    RU_CRLF=0; grep -q $'\r' CHANGELOG.ru.md && RU_CRLF=1
+    EN_CRLF=0; grep -q $'\r' CHANGELOG.md && EN_CRLF=1
     DATE=$(date +%Y-%m-%d)
     normalize() {  # rewrite the whole file with the target's dominant eol (LF content + CR)
         tmp=$(mktemp)
@@ -176,18 +178,18 @@ major|minor|series)  # ------------------------- bump -------------------------
         !done && /^## [0-9]/ { print head; print ""; print desc; print ""; done=1 }
         { print }
         END { if (!done) { print head; print ""; print desc } }
-    ' CHANGELOG.md > "$tmp" && cp "$tmp" CHANGELOG.md && rm -f "$tmp"
-    [ "$MD_CRLF" = 1 ] && normalize CHANGELOG.md
+    ' CHANGELOG.ru.md > "$tmp" && cp "$tmp" CHANGELOG.ru.md && rm -f "$tmp"
+    [ "$RU_CRLF" = 1 ] && normalize CHANGELOG.ru.md
     tmp=$(mktemp)
     awk -v head="## $NEW — $DATE — $CLASS" -v desc="$EN" '
         !done && /^## [0-9]/ { print head; print ""; print desc; print ""; done=1 }
         { print }
         END { if (!done) { print head; print ""; print desc } }
-    ' CHANGELOG.en.md > "$tmp" && cp "$tmp" CHANGELOG.en.md && rm -f "$tmp"
-    [ "$EN_CRLF" = 1 ] && normalize CHANGELOG.en.md
+    ' CHANGELOG.md > "$tmp" && cp "$tmp" CHANGELOG.md && rm -f "$tmp"
+    [ "$EN_CRLF" = 1 ] && normalize CHANGELOG.md
 
-    echo "$ver -> $NEW (записи в CHANGELOG.md и CHANGELOG.en.md)"
-    echo "далее: ./build.sh (гейт код<->версия + имя zip + release), коммит CMakeLists.txt CHANGELOG.md CHANGELOG.en.md"
+    echo "$ver -> $NEW (записи в CHANGELOG.ru.md и CHANGELOG.md)"
+    echo "далее: ./build.sh (гейт код<->версия + имя zip + release), коммит CMakeLists.txt CHANGELOG.md CHANGELOG.ru.md"
     ;;
 
 *)

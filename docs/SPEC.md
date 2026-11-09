@@ -122,7 +122,7 @@ info/warn/error), §8 (битый `config.json` в runtime), §9 (критери
 9. Релиз на GitHub (`release.sh`, добавлено 2026-11-08, plan-release.md п. 8): после
    packaging публикация zip как GitHub release — тег `v<version>-poe2-<gamever>`, title
    и body на английском; загрузка по умолчанию, отключение `--no-upload` (`build.sh
-   --no-upload` пробрасывает). Источник body — запись `CHANGELOG.en.md` текущей версии
+   --no-upload` пробрасывает). Источник body — запись `CHANGELOG.md` текущей версии
    (§2.4); для offsets-only релиза (та же версия exe, новый патч игры) — «Updated memory
    offsets for POE2 <gamever>, program code unchanged». Повторный upload существующего
    тега — сообщение и non-zero выход. `gh` берётся из PATH, fallback
@@ -179,9 +179,16 @@ info/warn/error), §8 (битый `config.json` в runtime), §9 (критери
 - **серия** (`1.x.y -> 2.0.0`) — только существенная переработка архитектуры;
 - **версия не поднимается, если код проекта не менялся** (exe актуален). Код проекта =
   `src/` и `res/` ассеты/rc/manifest, то есть всё, что линкуется в exe. Не поднимают
-  версию: `tests/`, документация (`SPEC.md`, `plan.md`, `backlog.md`, `README.md`,
-  `CHANGELOG.md`, `res/README.txt.in`), `research/`, `scanner/`, `build.sh`,
-  `version.sh`, `config.json`, `offsets.json`, `res/gen_assets.py`. Дополнено 2026-11-08
+  версию: `tests/`, документация (`docs/SPEC.md`, `docs/plan.md`, `docs/plan-release.md`,
+  `docs/plan-hot-reload.md`, `docs/backlog.md`, `README.md`, `README.ru.md`,
+  `CHANGELOG.md`, `CHANGELOG.ru.md`, `res/README.txt.in`), `research/`, `scanner/`, `build.sh`,
+  `version.sh`, `config.json`, `offsets.json`, `res/gen_assets.py`. Дополнено 2026-11-09
+  (документация в `docs/`): `SPEC.md`, `plan.md`, `plan-release.md`, `plan-hot-reload.md`,
+  `backlog.md` перенесены в `docs/`; `README.md`/`README.ru.md` и `CHANGELOG.md` (English,
+  переименован 2026-11-09 из `CHANGELOG.en.md`) / `CHANGELOG.ru.md` (русский, был
+  `CHANGELOG.md`)
+  остаются в корне — пути CHANGELOG хардкодят `version.sh`/`release.sh` (контракт §2.4).
+  Дополнено 2026-11-08
   (plan-release.md п. 5–8): в список не поднимающих версию добавлены `release.sh`,
   `res/README.ru.txt.in` (русский документ архива) и `res/config.example.json` (эталон
   дефолтов, данные, не ассет exe). Новый патч игры (новые смещения, новый `GameVersion`
@@ -190,8 +197,12 @@ info/warn/error), §8 (битый `config.json` в runtime), §9 (критери
 
 Единственный источник номера — `project(POE2FlaskHelper VERSION x.y.z LANGUAGES CXX RC)`
 в `CMakeLists.txt` (§2.2); его форма — контракт, который правит только `version.sh`.
-История версий — `CHANGELOG.md` (записи newest-first: версия, дата, класс, что вошло).
-Изменено 2026-11-08 (plan-release.md п. 8): англоязычные заметки — `CHANGELOG.en.md`,
+История версий — `CHANGELOG.ru.md` (русская, записи newest-first: версия, дата, класс,
+что вошло) и `CHANGELOG.md` (английские заметки релизов). Переименовано 2026-11-09
+(README convention: plain `CHANGELOG.md` — английский): англоязычный файл был
+`CHANGELOG.en.md`, русский был `CHANGELOG.md`; `version.sh`/`release.sh` привязаны к
+новым именам, §2.2 п. 9 и дерево §3 обновлены.
+Изменено 2026-11-08 (plan-release.md п. 8): англоязычные заметки,
 запись добавляется обязательным вторым описанием `--en "English note"` и служит body
 GitHub-релиза (`release.sh`, §2.2 п. 9). Git-тегов нет; якорь «последний подъём»
 вычисляется по истории `CMakeLists.txt`.
@@ -205,10 +216,11 @@ GitHub-релиза (`release.sh`, §2.2 п. 9). Git-тегов нет; якор
 ./version.sh check                      # гейт для build.sh
 ```
 
-`version.sh` правит `CMakeLists.txt`, `CHANGELOG.md` и `CHANGELOG.en.md`, никогда не
-коммитит; описание из второго аргумента идёт в русскую запись CHANGELOG, `--en` — в
-английскую. Проверки: git-репозиторий и HEAD, контрактная форма строки версии, чистые
-`CMakeLists.txt`/`CHANGELOG.md`/`CHANGELOG.en.md`, правило 3 (код менялся от последнего
+`version.sh` правит `CMakeLists.txt`, `CHANGELOG.md` (English) и `CHANGELOG.ru.md`
+(Russian), никогда не
+коммитит; описание из второго аргумента идёт в русскую запись CHANGELOG.ru.md, `--en` — в
+английскую (CHANGELOG.md). Проверки: git-репозиторий и HEAD, контрактная форма строки версии, чистые
+`CMakeLists.txt`/`CHANGELOG.md`/`CHANGELOG.ru.md`, правило 3 (код менялся от последнего
 подъёма до HEAD; исключение — documented-`--force`).
 
 Гейт `check` перед packaging (красых = zip не создаётся):
@@ -241,10 +253,18 @@ GitHub-релиза (`release.sh`, §2.2 п. 9). Git-тегов нет; якор
 Изменено 2026-11-08 (minors закрытия, m10): в exe-слой добавлен `src/win_text.h` —
 единый header-only inline `poe2::to_wide` для `tray.cpp` и `file_stamp.cpp` (третья
 per-TU копия убрана; reverse-копии `main.cpp`/`game_process.cpp` вне scope m10).
+Изменено 2026-11-09 (документация в docs/): `SPEC.md`, `plan.md`, `plan-release.md`,
+`plan-hot-reload.md`, `backlog.md` перенесены в `docs/` (`git mv`, история сохранена);
+`minor-issues.md` удалён — все записи (m1–n12) закрыты, закрывающие записи датированно
+живут в SPEC §3/§5/§7, сам файл в истории git. `CHANGELOG.md` (English, переименован
+2026-11-09 из `CHANGELOG.en.md`) и `CHANGELOG.ru.md` (русский, был `CHANGELOG.md`) остаются
+в корне: их пути привязывают `version.sh`/`release.sh` (контракт §2.4), перенос сломал бы
+подъём версии и body релиза.
 
 ```
-build.sh  version.sh  release.sh  CHANGELOG.md  CHANGELOG.en.md  CMakeLists.txt
-README.md  README.ru.md  SPEC.md  plan.md  plan-release.md  backlog.md
+build.sh  version.sh  release.sh  CHANGELOG.md  CHANGELOG.ru.md  CMakeLists.txt
+README.md  README.ru.md
+docs/ SPEC.md  plan.md  plan-release.md  plan-hot-reload.md  backlog.md
 статическая библиотека poe2_core (общая для exe и тестов; чистая логика, интерфейсы §3.1):
 src/json.{h,cpp}       разбор/сериализация
 src/config.{h,cpp}     схема, валидация, значения по умолчанию

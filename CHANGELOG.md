@@ -1,73 +1,13 @@
-# POE2FlaskHelper — история версий
+# POE2FlaskHelper — release notes (English)
 
-Формат номера — `1.major.minor` (ведущая цифра — серия, всегда `1`):
+The English version history of `1.major.minor` bumps (the rules are in `CHANGELOG.ru.md`).
+Entries are added by `./version.sh major|minor|series "desc" --en "English note"`
+(newest-first) and serve as the body of the GitHub releases published by `release.sh`
+(SPEC §2.4). The Russian history lives in `CHANGELOG.ru.md`.
 
-- **major** — новая пользовательская фича: `1.1.0 -> 1.2.0` (последняя цифра сбрасывается в 0);
-- **minor** — фикс бага или небольшое изменение поведения: `1.1.0 -> 1.1.1`;
-- **смена серии** — `1.x.y -> 2.0.0`: только существенная переработка архитектуры;
-- **версия не поднимается, если код проекта не менялся** — exe актуален. «Код проекта» =
-  `src/` и `res/` ассеты/rc/manifest (всё, что линкуется в exe). Версию не поднимают
-  правки `tests/`, документации (`SPEC.md`, `plan.md`, `backlog.md`, `README.md`,
-  `res/README.txt.in`), `research/`, `scanner/`, `build.sh`, `version.sh`,
-  `config.json`, `offsets.json`, `res/gen_assets.py`.
-
-Единственный источник номера — `project(POE2FlaskHelper VERSION ...)` в `CMakeLists.txt`
-(SPEC §2.2): он попадает в `build/version.h` (`--version`, лог старта), VERSIONINFO,
-манифест, генерируемый `README.txt` и имя архива. Поднимается только через `./version.sh`:
-
-```
-./version.sh major "описание фичи"
-./version.sh minor "описание фикса"
-./version.sh series "описание"      # смена серии: 1.x.y -> 2.0.0
-./version.sh check        # гейт согласованности код<->версия, вызывает build.sh
-```
-
-`version.sh` правит `CMakeLists.txt` и эту таблицу (записи newest-first), коммит и сборка
-вручную; автокоммита и git-тегов нет. Правила и гейт — SPEC §2.4.
-
+Releases before 1.3.0 have no English entry (the upload flow appeared in 1.3.0). For an
+offsets-only release (same exe version, new game patch) `release.sh` writes its own
+body and needs no entry here.
 ## 1.3.0 — 2026-11-08 — major
 
-строгая валидация конфига (неизвестный ключ = невалидный: старт — MessageBox и выход 2, runtime — текущий конфиг сохраняется); press/held-строки «% <=»; первая info-строка значений vitals; config.json создаётся при первом запуске (не в архиве); GameVersion в offsets.json и poe2-версия в имени архива; английские и русские README; релизы на GitHub (release.sh, отключение --no-upload)
-
-## 1.2.3 — 2026-11-08 — minor
-
-закрытие minors ревью раунда 1.2.2: win_text.h wording, SPEC-атрибуция §3, факты закрытия 1.2.1, стиль статусов
-
-## 1.2.2 — 2026-11-08 — minor
-
-закрытие minors ревью раунда 1.2.1: SPEC §3 дерево + win_text.h, LEAN_AND_MEAN-защита, перенос комментариев
-
-## 1.2.1 — 2026-11-08 — minor
-
-закрытие minors hot-reload: единый to_wide (win_text.h), тест json_broken на пустой текст, именованная база штампа, комментарии/includes, SPEC-шапка §2.3
-
-## 1.2.0 — 2026-11-08 — major
-
-config.json hot reload + reload.wav
-
-## 1.1.1 — 2026-11-08 — minor
-
-тултип с именем+версией первой строкой; фикс громкости: поиск WAVE-ресурса по строковому типу и языку 0x409, буфер SND_MEMORY живёт до конца проигрывания; build.sh clean-build
-
-## 1.1.0 — 2026-11-08 — major
-
-звук из конфига: sound.volume 0..100 (PCM16-масштабирование при каждом проигрывании, SND_MEMORY) + фикс тултипа трея NIF_SHOWTIP при NOTIFYICON_VERSION_4
-
-## 1.0.0 — 2026-11-08 — первый релиз
-
-MVP по SPEC v1.1, этапы 0–5 плана плюс live-тесты L1/M1 (173 теста, `ctest` зелёный):
-
-- трей с пунктами Enabled/Disabled (галочка) и Exit, глобальный Ctrl+9 с обработкой
-  занятой комбинации, `enable.wav` / `disable.wav` (PCM16), пользовательская иконка;
-- async-лог с ротацией и local-штампами, `config.json` / `offsets.json` по SPEC §5–§6,
-  скан сигнатуры чанками 1 МБ, цепочка адресации A–J, Vital'ы HP / Mana / Energy Shield /
-  Ward / Rage, `evaluate()` с порогом, кулдауном от последней отправки и foreground-gate,
-  SendInput с scan code и extended-флагами;
-- состояние In menu / loading (`Phase::InMenu`) убирает info-спам главного меню,
-  held-строка окна кулдауна пишется один раз за окно;
-- путь Admin: error-лог + тултип «Admin rights required» с троттлом 5 с и восстановлением;
-- сборка: `build.sh` (vcvars64 → VS cmake/ninja → Release → strip + целостность →
-  `ctest` → zip), smoke-запуск staged-копии, zip-гейт состава.
-
-Состав архива: `POE2FlaskHelper.exe` + `config.json` + `offsets.json` + `README.txt`.
-Коммиты `213bf35` (этап 0) … `c499602` (live-тесты M1).
+Strict config validation: an unknown key makes config.json invalid — startup shows a message box and exits, runtime keeps the current config. Press/held log lines print '% <='. Vitals are logged at info level on the first fetch. config.json is generated on first run (no longer shipped in the archive). The game patch version (GameVersion) is written into offsets.json and carried in the archive name. English and Russian user documents. GitHub release upload, disable with --no-upload.

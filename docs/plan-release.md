@@ -3,6 +3,9 @@
 План от 2026-11-08. Порядок работ: сканер → ядро → app-слой → docs → сборка/релиз.
 Опора: [`SPEC.md`](SPEC.md), [`plan.md`](plan.md), [`plan-hot-reload.md`](plan-hot-reload.md).
 
+Статус (2026-11-09): **выполнено, архив** — п. 1–8 реализованы, релиз 1.3.0 (коммит
+`11b97e2`).
+
 ## 1. Версия poe2 в offsets.json (сканер)
 
 - `scanner/poe_scan.py`: helper `game_version(exe_path, pid)` — полный путь процесса из
@@ -71,7 +74,7 @@
 
 - Удалить `research/code/`, `offsets_table.py`, `extract_code.py`, `rev32_rev33.diff`.
 - Правки ссылок: корневые README'и, `poe_scan.py` (комментарий «из code/revNNN»),
-  `research/REPORT.md` (стр. 7–11, 320, 461–462). `pe_res_check.py`,
+  `../research/REPORT.md` (стр. 7–11, 320, 461–462). `pe_res_check.py`,
   `check_symbols.py`, `verify_signature.py`, `life_context.py`,
   `find_component_names.py` остаются.
 

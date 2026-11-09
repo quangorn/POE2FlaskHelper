@@ -5,7 +5,8 @@
 #
 # Tag: v<version>-poe2-<gamever> (the poe2 part comes from the GameVersion key of
 # offsets.json, written first by find_offsets.py --save). Title and notes are English.
-# Notes body: the CHANGELOG.en.md entry of the version; when a release of the SAME exe
+# Notes body: the CHANGELOG.md entry of the version (English file, rename 2026-11-09); when
+# a release of the SAME exe
 # version already exists (offsets-only release for a new game patch), the body is the
 # offsets-update sentence. Re-upload of an existing tag: message + non-zero exit.
 set -o pipefail
@@ -67,7 +68,7 @@ fi
 
 # Offsets-only release (version.sh check is green on unchanged code, the poe2 version is
 # new): a release of the SAME exe version already exists -> the notes are the offsets
-# sentence, and CHANGELOG.en.md needs no entry for it (CHANGELOG.en.md intro). Detection
+# sentence, and CHANGELOG.md needs no entry for it (CHANGELOG.md intro). Detection
 # runs BEFORE the body-required check below: this is the only scenario the plan describes
 # for an unchanged-code release, and a missing English entry must not kill it.
 # Dots of $VERSION are escaped — a plain dot in a regex is a wildcard (NIT R1-10).
@@ -78,18 +79,18 @@ if [ -n "$GAMEVER" ] && "$GH" release list --repo "$REPO" --limit 100 2>/dev/nul
     OFFSETS_ONLY=1
 fi
 
-# English notes body: the CHANGELOG.en.md entry of this version (added by version.sh).
+# English notes body: the CHANGELOG.md entry of this version (added by version.sh).
 # $2 is the version token of the newest-first heading "## <version> — <date> — <class>",
 # compared as an exact string (no wildcard dots).
 BODY=$(awk -v v="$VERSION" '
     /^## / { take = ($2 == v) }
     take && !/^## / { print }
-' CHANGELOG.en.md | tr -d '\r' | sed -e '1{/^$/d}' | tr '\n' ' ')
+' CHANGELOG.md | tr -d '\r' | sed -e '1{/^$/d}' | tr '\n' ' ')
 
 if [ -n "$OFFSETS_ONLY" ]; then
     BODY="Updated memory offsets for POE2 $GAMEVER, program code unchanged."
 elif [ -z "$BODY" ]; then
-    die "CHANGELOG.en.md has no entry for version $VERSION — bump with ./version.sh major|minor \"desc\" --en \"English note\""
+    die "CHANGELOG.md has no entry for version $VERSION — bump with ./version.sh major|minor \"desc\" --en \"English note\""
 fi
 
 "$GH" release create "$TAG" "$ZIP" --repo "$REPO" --title "$TITLE" --notes "$BODY" \

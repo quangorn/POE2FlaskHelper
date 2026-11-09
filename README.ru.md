@@ -8,16 +8,13 @@ English version of this document: [`README.md`](README.md).
 
 ## Структура
 
-- [`SPEC.md`](SPEC.md) — спецификация приложения: стек, сборка, конфиг, поведение
-  трея и сканера, критерии приёмки.
-- [`plan.md`](plan.md) — план этапов реализации.
-- [`plan-release.md`](plan-release.md) — план доработок релиза 1.3.0 (валидация
-  конфига, лог-строки, версия игры, разрыв README'ев, загрузка релизов).
-- [`backlog.md`](backlog.md) — что отложено (окно настройки конфига). Громкость WAV
-  реализована 2026-11-08 (`sound.volume`).
-- [`CHANGELOG.md`](CHANGELOG.md) — история версий и правила подъёма (`1.major.minor`).
-  [`CHANGELOG.en.md`](CHANGELOG.en.md) — англоязычные заметки релизов (body релизов
-  GitHub).
+- [`docs/`](docs) — документация проекта: `SPEC.md` (спецификация приложения: стек,
+  сборка, конфиг, поведение трея и сканера, критерии приёмки), `plan.md` и
+  `plan-release.md` (планы реализации, выполнены, архив), `backlog.md` (что отложено —
+  окно настройки конфига; Громкость WAV реализована 2026-11-08).
+- [`CHANGELOG.md`](CHANGELOG.md) — англоязычные заметки релизов (body релизов GitHub).
+  [`CHANGELOG.ru.md`](CHANGELOG.ru.md) — история версий и правила подъёма
+  (`1.major.minor`), русский.
 - [`version.sh`](version.sh) — подъём версии (`major`/`minor`/`series`) и гейт
   согласованности «код ↔ версия» для `build.sh` (SPEC §2.4).
 - [`release.sh`](release.sh) — публикация собранного архива как GitHub release
@@ -75,8 +72,8 @@ PATH, fallback `C:\Program Files\GitHub CLI\gh.exe`; `--no-upload` пропус�
 серии (`2.0.0`) — только при существенной переработке архитектуры. Если код проекта
 (`src/` и `res/` ассеты/rc/manifest) не менялся, exe актуален и версия не
 поднимается — новый патч игры с новыми смещениями выпускается новым архивом с новой
-poe2 в имени, без смены версии exe. История — [`CHANGELOG.md`](CHANGELOG.md),
-английские заметки — [`CHANGELOG.en.md`](CHANGELOG.en.md).
+poe2 в имени, без смены версии exe. История — [`CHANGELOG.ru.md`](CHANGELOG.ru.md),
+английские заметки — [`CHANGELOG.md`](CHANGELOG.md).
 
 Номер живёт в одном месте — `project(POE2FlaskHelper VERSION ...)` в `CMakeLists.txt`;
 он попадает в `--version`, VERSIONINFO, манифест, генерируемые README'и и имя zip.
@@ -89,9 +86,9 @@ poe2 в имени, без смены версии exe. История — [`CHA
 ./version.sh check                      # гейт согласованности код <-> версия (build.sh)
 ```
 
-`version.sh` правит `CMakeLists.txt`, `CHANGELOG.md` и `CHANGELOG.en.md` и никогда не
+`version.sh` правит `CMakeLists.txt`, `CHANGELOG.md` (English) и `CHANGELOG.ru.md` и никогда не
 коммитит; после подъёма гоняй `./build.sh` и коммити `CMakeLists.txt` +
-`CHANGELOG.md` + `CHANGELOG.en.md`. Правило 3 проверяется при подъёме (отказ, если код
+`CHANGELOG.md` + `CHANGELOG.ru.md`. Правило 3 проверяется при подъёме (отказ, если код
 не менялся; исключение — `--force`) и в сборке (красых = zip не создаётся).
 Подробности — SPEC §2.4.
 

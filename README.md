@@ -8,16 +8,13 @@ The Russian version of this document is [`README.ru.md`](README.ru.md).
 
 ## Structure
 
-- [`SPEC.md`](SPEC.md) — the application specification: stack, build, config, tray and
-  scanner behavior, acceptance criteria.
-- [`plan.md`](plan.md) — the implementation stage plan.
-- [`plan-release.md`](plan-release.md) — the plan of the 1.3.0 feature batch (config
-  validation, log lines, game version, README split, release upload).
-- [`backlog.md`](backlog.md) — what is deferred (the config editor window). WAV volume
-  was implemented 2026-11-08 (`sound.volume`).
-- [`CHANGELOG.md`](CHANGELOG.md) — version history and the bump rules
-  (`1.major.minor`), Russian. [`CHANGELOG.en.md`](CHANGELOG.en.md) — the English
-  release notes (the body of the GitHub releases).
+- [`docs/`](docs) — project documentation: `SPEC.md` (the application specification:
+  stack, build, config, tray and scanner behavior, acceptance criteria), `plan.md` and
+  `plan-release.md` (implementation plans, completed, archive), `backlog.md` (what is
+  deferred — the config editor window; WAV volume was implemented 2026-11-08).
+- [`CHANGELOG.md`](CHANGELOG.md) — the English release notes (the body of the GitHub
+  releases, added by `version.sh --en`). [`CHANGELOG.ru.md`](CHANGELOG.ru.md) — version
+  history and the bump rules (`1.major.minor`), Russian.
 - [`version.sh`](version.sh) — the version bump (`major`/`minor`/`series`) and the
   "code ↔ version" gate for `build.sh` (SPEC §2.4).
 - [`release.sh`](release.sh) — publishes the built archive as a GitHub release
@@ -78,8 +75,8 @@ features (`1.1.0 → 1.2.0`), **minor** for fixes and small behavior changes
 rework. If the project code (`src/` and the `res/` assets/rc/manifest) has not
 changed, the exe is current and the version is not bumped — a new game patch with new
 offsets ships as a new archive named by the new poe2 version, without an exe version
-change. History — [`CHANGELOG.md`](CHANGELOG.md) (Russian) and
-[`CHANGELOG.en.md`](CHANGELOG.en.md) (English release notes).
+change. History — [`CHANGELOG.ru.md`](CHANGELOG.ru.md) (Russian) and
+[`CHANGELOG.md`](CHANGELOG.md) (English release notes).
 
 The number lives in one place — `project(POE2FlaskHelper VERSION ...)` in
 `CMakeLists.txt`; it reaches `--version`, VERSIONINFO, the manifest, the generated
@@ -92,9 +89,10 @@ READMEs and the zip name. Bumps go only through `./version.sh`:
 ./version.sh check                      # the code <-> version gate (build.sh)
 ```
 
-`version.sh` edits `CMakeLists.txt`, `CHANGELOG.md` and `CHANGELOG.en.md`, and never
+`version.sh` edits `CMakeLists.txt`, `CHANGELOG.md` (English) and `CHANGELOG.ru.md`
+(Russian), and never
 commits; after a bump run `./build.sh` and commit `CMakeLists.txt` + `CHANGELOG.md` +
-`CHANGELOG.en.md`. Rule 3 is checked at the bump (refusal when the code did not
+`CHANGELOG.ru.md`. Rule 3 is checked at the bump (refusal when the code did not
 change; the exception is `--force`) and in the build (red = no zip). Details — SPEC §2.4.
 
 ## Requirements
