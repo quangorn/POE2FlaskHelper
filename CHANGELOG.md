@@ -8,6 +8,10 @@ Entries are added by `./version.sh major|minor|series "desc" --en "English note"
 Releases before 1.3.0 have no English entry (the upload flow appeared in 1.3.0). For an
 offsets-only release (same exe version, new game patch) `release.sh` writes its own
 body and needs no entry here.
+## 1.4.0 — 2026-11-23 — major
+
+Tray menu item 'Edit config' opens config.json in the editor associated with .json (verb edit) with a notepad.exe fallback; a failed launch logs a warn with no message box. The menu has three items with a separator before Exit, and no WAV plays on this item. Saving the file applies through the existing 5 s hot-reload cycle (config.json reloaded ... + reload.wav). PostMessageW(WM_COMMAND, 1003) is the documented hook for Edit config. SPEC §1/§2.3/§3/§4.2/§4.3/§7/§8/§9, English and Russian README updated.
+
 ## 1.3.0 — 2026-11-08 — major
 
 Strict config validation: an unknown key makes config.json invalid — startup shows a message box and exits, runtime keeps the current config. Press/held log lines print '% <='. Vitals are logged at info level on the first fetch. config.json is generated on first run (no longer shipped in the archive). The game patch version (GameVersion) is written into offsets.json and carried in the archive name. English and Russian user documents. GitHub release upload, disable with --no-upload.

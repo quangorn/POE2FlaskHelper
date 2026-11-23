@@ -28,6 +28,10 @@
 `version.sh` правит `CMakeLists.txt`, эту таблицу (записи newest-first) и `CHANGELOG.md`
 (английская заметка релиза), коммит и сборка вручную; автокоммита и git-тегов нет. Правила и гейт — SPEC §2.4.
 
+## 1.4.0 — 2026-11-23 — major
+
+пункт меню трея «Edit config» открывает config.json в редакторе по ассоциации .json (verb edit), fallback notepad.exe; при неудаче — warn в лог без окна сообщения; меню — три пункта с разделителем перед Exit, WAV на этот пункт не играется; сохранение файла применяется существующим 5 с циклом hot-reload (config.json reloaded (…) + reload.wav); documented-хук PostMessageW(WM_COMMAND, 1003); затронуты SPEC §1/§2.3/§3/§4.2/§4.3/§7/§8/§9, README EN/RU
+
 ## 1.3.0 — 2026-11-08 — major
 
 строгая валидация конфига (неизвестный ключ = невалидный: старт — MessageBox и выход 2, runtime — текущий конфиг сохраняется); press/held-строки «% <=»; первая info-строка значений vitals; config.json создаётся при первом запуске (не в архиве); GameVersion в offsets.json и poe2-версия в имени архива; английские и русские README; релизы на GitHub (release.sh, отключение --no-upload)
