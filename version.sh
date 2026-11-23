@@ -174,6 +174,13 @@ major|minor|series)  # ------------------------- bump -------------------------
         tmp=$(mktemp)
         tr -d '\r' < "$1" | sed 's/$/\r/' > "$tmp" && cp "$tmp" "$1" && rm -f "$tmp"
     }
+    # Fix 2026-11-23: the RU rewrite below writes to "$tmp", which the R1-11 refactor left
+    # assigned only inside normalize() and in the EN branch after it. At this point the name
+    # is unset: the redirect to an empty name fails, the RU entry is dropped and the script
+    # prints success with rc 0 (measured in a scratch repo). Assign the temp before the
+    # first rewrite; the EN branch keeps its own mktemp so the two rewrites never share a
+    # temporary file.
+    tmp=$(mktemp)
     awk -v head="## $NEW — $DATE — $CLASS" -v desc="$DESC" '
         !done && /^## [0-9]/ { print head; print ""; print desc; print ""; done=1 }
         { print }
