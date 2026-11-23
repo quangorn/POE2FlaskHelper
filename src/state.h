@@ -19,10 +19,12 @@ namespace poe2 {
 constexpr uint16_t kIconResId = IDI_APP_ICON, kEnableWavResId = ID_ENABLE_WAV,
                    kDisableWavResId = ID_DISABLE_WAV, kReloadWavResId = ID_RELOAD_WAV;
 
-// Menu command ids sent as WM_COMMAND(LOWORD(wParam)) by the tray popup menu: one
-// state-dependent toggle item and Exit. The Exit id is the documented programmatic
-// exit path for a reviewer (see the class-name note in src/tray.h).
-constexpr uint32_t kCmdToggle = 1001, kCmdExit = 1002;
+// Menu command ids sent as WM_COMMAND(LOWORD(wParam)) by the tray popup menu: the
+// state-dependent toggle item, Edit config and Exit - the menu has three rows
+// (2026-11-23; the separator before Exit is rendered by tray.cpp, it is not a
+// command). The Exit id is the documented programmatic exit path for a reviewer
+// (see the class-name note in src/tray.h).
+constexpr uint32_t kCmdToggle = 1001, kCmdExit = 1002, kCmdEditConfig = 1003;
 
 // Phases reachable before the scanner thread exists (SPEC §4.6 items 1-3). Stage 2
 // wires enable/disable to state only; the reading phase arrives in stage 3.
@@ -38,8 +40,8 @@ constexpr uint32_t kCmdToggle = 1001, kCmdExit = 1002;
 // to the UI (the label carries none), the scanner reads Vital' values in Attached only.
 enum class Phase { ScannerOff, WaitingForGame, InMenu, Attached, AdminRequired };
 
-// Commands the app reacts to: the menu toggle item, the hotkey, Exit.
-enum class TrayCmd { None, Toggle, Exit };
+// Commands the app reacts to: the menu toggle item, the hotkey, Edit config, Exit.
+enum class TrayCmd { None, Toggle, Exit, EditConfig };
 
 struct AppStatus {
     bool scanner_enabled = false;
@@ -61,11 +63,14 @@ std::string tooltip_text(const AppStatus& st);
 
 struct MenuItem { std::string label; bool checked; uint32_t cmd; };
 
-// SPEC §4.3 (amended 2026-11-07): the right-click menu has exactly two rows - one
-// toggle item and Exit. The toggle item's text reflects the scanner state
+// SPEC §4.3 (amended 2026-11-07, three rows 2026-11-23): the right-click menu has
+// three rows - the toggle item, Edit config and Exit (the separator before Exit is
+// rendered by tray.cpp). The toggle item's text reflects the scanner state
 // ("Enabled" / "Disabled") and its checkmark reflects it as well (checked when
 // enabled). Clicking it is the same toggle as the hotkey.
 MenuItem tray_toggle_item(bool scanner_enabled);
+// The Edit config row (never checked): opens config.json in the text editor.
+MenuItem tray_edit_config_item();
 // The Exit row (never checked).
 MenuItem tray_exit_item();
 

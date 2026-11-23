@@ -46,9 +46,15 @@ Controls
 Ctrl+9 - global hotkey, switches the scanner module on and off. It works while the
 game has the focus. Enabling plays enable.wav, disabling plays disable.wav, at the
 config sound.volume level (0 = silent).
-Right-click the tray icon - a two-item menu:
+Right-click the tray icon - a three-item menu, with a separator before Exit:
   Enabled / Disabled - the switch; the text shows the current state, the checkmark
   marks the enabled module; clicking does the same as Ctrl+9.
+  Edit config - opens config.json in the text editor registered for .json files; when
+   that editor cannot be started, notepad.exe is used. A repeated click opens a new
+   editor window. No sound plays on this item: enable.wav/disable.wav/reload.wav stay
+   on the switch and on the config reload. Saving in the editor applies through the
+   5 s check of the next section - at most 5 seconds + one poll after the save, the
+   log gets "config.json reloaded (...)" and reload.wav plays.
   Exit - clean exit, the icon disappears from the tray.
 Double-click on the icon does nothing.
 
@@ -74,7 +80,10 @@ config is not applied at all, no sound plays, and the program keeps running on t
 settings it already has - fix the key and save. If an editor holds the file with an
 exclusive lock, or the file is deleted, you get one warning per check and the next
 check tries again. If the new hotkey is taken by another program, the old one is kept
-and the log warns.
+and the log warns. When Edit config finds no editor for .json, notepad.exe is started;
+if that fails too, the log gets one warning "cannot open config.json in an editor
+(ShellExecute, gle=N)", there is no message box, and the program keeps running with
+the tray menu available.
 No sound plays at startup: reload.wav plays only on a successful reload, at the
 sound.volume level.
 
@@ -86,9 +95,9 @@ config.json  - settings, created by the program on the first run with defaults. 
   Ctrl+9 hotkey, sound volume (sound.volume, 0-100 % for enable.wav/disable.wav/
   reload.wav, 100 by default), and for each Vital: enabled, key, threshold (1-100 %),
   cooldownMs. The file is checked every 5 seconds (see "Editing config.json at
-  runtime"): most settings apply on the fly, edit and save; enabledOnStart and
-  logging.file apply after a restart. An unknown key makes the whole file invalid
-  (see "How to run").
+  runtime"): most settings apply on the fly - open it from the tray menu (Edit config)
+  or in any editor, edit and save; enabledOnStart and logging.file apply after a
+  restart. An unknown key makes the whole file invalid (see "How to run").
 offsets.json - game offsets, mandatory. The first key "GameVersion" is the patch
   version string of the game (read by find_offsets.py from the game client log,
   e.g. "0.5.5f"); the program ignores it, it identifies the release archive. After a

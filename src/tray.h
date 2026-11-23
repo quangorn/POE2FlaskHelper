@@ -13,6 +13,7 @@
 // Programmatic hooks for a reviewer / smoke test (documented, reproducible):
 //   HWND hwnd = FindWindowW(L"POE2FlaskHelperTrayWindow", nullptr);  // finds the hidden window
 //   PostMessageW(hwnd, WM_COMMAND, poe2::kCmdToggle /* 1001 */, 0);  // == the switch
+//   PostMessageW(hwnd, WM_COMMAND, poe2::kCmdEditConfig /* 1003 */, 0);  // == Edit config
 //   PostMessageW(hwnd, WM_COMMAND, poe2::kCmdExit /* 1002 */, 0);    // == Exit
 //   PostMessageW(hwnd, WM_CLOSE, 0, 0)  -> DestroyWindow -> WM_DESTROY -> exit
 // Both hooks work cross-process. Measured 2026-11-08 (stage 5 acceptance): PostMessageW
@@ -20,6 +21,11 @@
 // flipped the scanner ("scanner enabled" + tooltip written), kCmdExit exited with code 0
 // and WM_CLOSE exited with code 0, each through the clean shutdown in main.cpp: scanner
 // thread stop+join, sound off, UnregisterHotKey, NIM_DELETE, log flush.
+// The kCmdEditConfig hook is the same cross-process WM_COMMAND mechanism as 1001/1002
+// above: handle() maps 1003 to TrayCmd::EditConfig (tray_cmd_from_id in state.cpp) and
+// delivers it to TrayHost::on_cmd, where the editor launch lands (stage 3 of the Edit
+// config feature). The menu renders three rows - toggle, Edit config, a separator, Exit
+// (show_menu; the separator is a menu element, not a command).
 // Exit hooks do NOT complete shutdown while a modal menu is open: the TrackPopupMenu
 // modal loop consumes PostQuitMessage, so an undismissed popup menu blocks the exit
 // hook (the smoke gate of build.sh step 5b posts WM_CLOSE only when no menu is open).
@@ -85,7 +91,8 @@
 // foreground first can hand it to the tray window, which helps, it is not required.
 //
 // The menu item ids are pure core constants (src/state.cpp): kCmdToggle = 1001 flips
-// the scanner exactly like the hotkey, kCmdExit = 1002 exits.
+// the scanner exactly like the hotkey, kCmdEditConfig = 1003 opens config.json in the
+// text editor, kCmdExit = 1002 exits.
 //
 // No visible-window check: GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_VISIBLE == 0.
 
@@ -147,7 +154,8 @@ public:
 private:
     static LRESULT CALLBACK wproc(HWND, UINT, WPARAM, LPARAM);
     LRESULT handle(UINT msg, WPARAM wp, LPARAM lp);
-    void show_menu();  // exactly two rows: state-dependent toggle item + Exit (SPEC §4.3)
+    void show_menu();  // SPEC §4.3 (amended 2026-11-23): three rows - toggle item +
+                       // Edit config + separator before Exit
 
     NOTIFYICONDATAW nid_ = {};
     TrayHost& host_;

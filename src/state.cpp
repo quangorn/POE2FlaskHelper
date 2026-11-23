@@ -44,13 +44,17 @@ MenuItem tray_toggle_item(bool scanner_enabled) {
     return {scanner_enabled ? "Enabled" : "Disabled", scanner_enabled, kCmdToggle};
 }
 
+// SPEC §4.3 (added 2026-11-23): opens config.json in the text editor, never checked.
+MenuItem tray_edit_config_item() { return {"Edit config", false, kCmdEditConfig}; }
+
 MenuItem tray_exit_item() { return {"Exit", false, kCmdExit}; }
 
 TrayCmd tray_cmd_from_id(uint32_t cmd_id) {
     switch (cmd_id) {
-        case kCmdToggle: return TrayCmd::Toggle;
-        case kCmdExit:   return TrayCmd::Exit;
-        default:         return TrayCmd::None;
+        case kCmdToggle:     return TrayCmd::Toggle;
+        case kCmdEditConfig: return TrayCmd::EditConfig;
+        case kCmdExit:       return TrayCmd::Exit;
+        default:             return TrayCmd::None;
     }
 }
 

@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <shellapi.h>  // ShellExecuteW; WIN32_LEAN_AND_MEAN does not pull it in (tray.cpp does the same)
 #include <string>
 #include <vector>
 
@@ -105,6 +106,31 @@ static void toggle_scanner(poe2::AppStatus& st, poe2::Scanner& scanner,
         // SPEC §4.5: resource error is a warning, the toggle already happened.
         logger.log(poe2::LogLevel::Warn,
                    "sound resource failed (PlaySound), toggle proceeds without sound");
+    }
+}
+
+// Tray menu "Edit config" (SPEC §4.3, amended 2026-11-23): launch the editor for
+// config.json. ShellExecuteW verb "edit" opens the editor registered by the .json
+// file association; notepad.exe is the guaranteed fallback when that verb has no
+// handler. ShellExecuteW reports failure with a return value <= 32 (the documented
+// SE_ERR_* constants), so the two calls are tried in order. A failed launch is a warn
+// in the log with no MessageBox - SPEC §4.5/§8 style: resource failures warn and the
+// app keeps running, the menu stays available. Every launch is visible by its info
+// line, and a repeated click opens a new editor window (accepted).
+static void open_config_editor(const poe2::Paths& paths, poe2::Logger& logger) {
+    const std::wstring p = poe2::to_wide(paths.config_json());
+    HINSTANCE r = ShellExecuteW(nullptr, L"edit", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(r) > 32) {
+        logger.log(poe2::LogLevel::Info, "config.json editor launched (edit)");
+        return;
+    }
+    r = ShellExecuteW(nullptr, L"open", L"notepad.exe", p.c_str(), nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(r) > 32) {
+        logger.log(poe2::LogLevel::Info, "config.json editor launched (notepad)");
+    } else {
+        logger.log(poe2::LogLevel::Warn,
+                   "cannot open config.json in an editor (ShellExecute, gle="
+                   + std::to_string(GetLastError()) + ")");
     }
 }
 
@@ -299,6 +325,11 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
             toggle_scanner(status, scanner, logger, hInst, ctl.snapshot,
                            !status.scanner_enabled);
             tray.update_tooltip();  // tooltip reflects the new state (SPEC §4.3)
+        } else if (cmd == poe2::TrayCmd::EditConfig) {
+            // SPEC §4.3 (amended 2026-11-23): "Edit config" launches the editor for
+            // config.json. paths and logger are WinMain locals that live for the whole
+            // message loop, so the handler uses them directly; no tooltip change here.
+            open_config_editor(paths, logger);
         }
     };
     // Status timer handler: merges the scanner thread's atomic snapshot into the app
@@ -351,6 +382,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
         // loop; this 5 s check reads ~1 KB (GetFileTime + ReadFile) on the UI thread, which
         // does not block the UI. The SPEC.md wording is amended in plan stage 5; this
         // comment is the code-side record of the seam, SPEC.md is untouched here.
+        // Amended 2026-11-23: the same seam makes the "Edit config" handler legal too -
+        // ShellExecuteW is a main-thread Win32 call in the message loop, like the
+        // RegisterHotKey/PlaySound calls of SPEC §4.2 above; the editor process opens
+        // config.json itself, this app's thread reads no file.
         host.on_config_timer = [&]() {
             // Step 1 (plan §3): the stamp probe - no change, cycle done.
             poe2::FileStamp cur;

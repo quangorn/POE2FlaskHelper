@@ -1,5 +1,7 @@
 // Stage 2 pure state / UI mapping tests (SPEC §4.3-§4.5; plan.md §3 stage 2:
-// "чистая функция состояния меню", "маппинг состояние -> WAV resource id").
+// "чистая функция состояния меню", "маппинг состояние -> WAV resource id"). The tray
+// menu is three rows - the toggle, Edit config, Exit (the separator before Exit is
+// drawn by tray.cpp, it is not a command) - and every row is checked here.
 // Deterministic, no sleeps, no Win32 UI - only poe2_core functions (src/state.cpp).
 #include "test.h"
 
@@ -40,18 +42,32 @@ TEST(tray_menu_toggle_item_on) {
     CHECK_EQ(tg.cmd, poe2::kCmdToggle);
 }
 
+TEST(tray_menu_edit_config_row) {
+    // SPEC §4.3 (added 2026-11-23): the middle row opens config.json in the editor.
+    const MenuItem ed = poe2::tray_edit_config_item();
+    CHECK_EQ(ed.label, std::string("Edit config"));
+    CHECK_EQ(ed.checked, false);  // Edit config never has a checkmark
+    CHECK_EQ(ed.cmd, poe2::kCmdEditConfig);
+    // Its id differs from both toggle states and from Exit (the menu has three rows).
+    CHECK(poe2::tray_toggle_item(true).cmd != ed.cmd);
+    CHECK(poe2::tray_toggle_item(false).cmd != ed.cmd);
+    CHECK(poe2::tray_exit_item().cmd != ed.cmd);
+}
+
 TEST(tray_menu_exit_row) {
     const MenuItem ex = poe2::tray_exit_item();
     CHECK_EQ(ex.label, std::string("Exit"));
     CHECK_EQ(ex.checked, false);  // Exit never has a checkmark
     CHECK_EQ(ex.cmd, poe2::kCmdExit);
-    // The two rows have distinct command ids (the menu has exactly two rows).
+    // The three rows have distinct command ids (the menu has three rows).
     CHECK(poe2::tray_toggle_item(true).cmd != ex.cmd);
     CHECK(poe2::tray_toggle_item(false).cmd != ex.cmd);
+    CHECK(poe2::tray_edit_config_item().cmd != ex.cmd);
 }
 
 TEST(menu_command_routing) {
     CHECK(poe2::tray_cmd_from_id(poe2::kCmdToggle) == TrayCmd::Toggle);
+    CHECK(poe2::tray_cmd_from_id(poe2::kCmdEditConfig) == TrayCmd::EditConfig);
     CHECK(poe2::tray_cmd_from_id(poe2::kCmdExit) == TrayCmd::Exit);
     // Unknown ids (the tray menu never sends them) are ignored, not a crash path.
     CHECK(poe2::tray_cmd_from_id(0) == TrayCmd::None);

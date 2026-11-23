@@ -97,7 +97,8 @@ LRESULT Tray::handle(UINT msg, WPARAM wp, LPARAM lp) {
             if (menu) {
                 // Actionable: only this event is an info line (SPEC §7 info list).
                 host_.logger.log(LogLevel::Info, "tray callback: right-click menu request");
-                show_menu();  // SPEC §4.3: one state-dependent toggle row + Exit
+                show_menu();  // SPEC §4.3 (amended 2026-11-23): toggle row + Edit config
+                              // + separator + Exit
             }
             // Double click on the icon does nothing (SPEC §4.3); left click too.
             return 0;
@@ -143,18 +144,24 @@ LRESULT Tray::handle(UINT msg, WPARAM wp, LPARAM lp) {
 void Tray::show_menu() {
     HMENU m = CreatePopupMenu();
     if (!m) return;
-    // SPEC §4.3 (amended 2026-11-07): exactly two rows - the state-dependent toggle
-    // item (text + checkmark from state.cpp) and Exit.
+    // SPEC §4.3 (amended 2026-11-23): three rows - the state-dependent toggle item
+    // (text + checkmark from state.cpp), Edit config, then a separator and Exit. The
+    // separator is a rendered menu element, not a command: MF_SEPARATOR carries id 0
+    // and never produces WM_COMMAND, so tray_cmd_from_id sees only 1001/1002/1003.
     const MenuItem tg = tray_toggle_item(host_.status.scanner_enabled);
     AppendMenuW(m, MF_STRING | (tg.checked ? MF_CHECKED : 0),
                 static_cast<UINT>(tg.cmd), to_wide(tg.label).c_str());
+    const MenuItem ec = tray_edit_config_item();  // never checked (state.cpp)
+    AppendMenuW(m, MF_STRING, static_cast<UINT>(ec.cmd), to_wide(ec.label).c_str());
+    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);  // separator before Exit
     const MenuItem ex = tray_exit_item();
     AppendMenuW(m, MF_STRING, static_cast<UINT>(ex.cmd), to_wide(ex.label).c_str());
 
     // Log the built menu so a reviewer can verify labels/checkmarks from app.log.
+    // " | " marks the separator before Exit; Edit config has no checkmark column.
     host_.logger.log(LogLevel::Info,
                      "menu: " + tg.label + "[" + std::string(tg.checked ? "x" : "") + "]"
-                     " Exit[" + std::string(ex.checked ? "x" : "") + "]");
+                     " " + ec.label + " | Exit[" + std::string(ex.checked ? "x" : "") + "]");
     POINT pt;
     GetCursorPos(&pt);
     // SetForegroundWindow before TrackPopupMenu: required for the menu to close on
@@ -165,7 +172,8 @@ void Tray::show_menu() {
     // TrackPopupMenu is modal and the app handles WM_COMMAND from the menu fine.
     BOOL ok = TrackPopupMenu(m, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd_, nullptr);
     if (ok) {
-        host_.logger.log(LogLevel::Info, "popup menu shown: " + tg.label + " / Exit");
+        host_.logger.log(LogLevel::Info,
+                         "popup menu shown: " + tg.label + " / " + ec.label + " / Exit");
     } else {
         host_.logger.log(LogLevel::Warn, "popup menu failed (TrackPopupMenu, gle="
                         + std::to_string(GetLastError()) + ", foreground=" + std::to_string(fg) + ")");
